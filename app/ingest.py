@@ -294,16 +294,30 @@ async def _ingest_body_work(
     summaries_left = MAX_SUMMARY_TRANSLATIONS_PER_RUN
     translations: list[dict[str, Any]] = []
     for item in pending_translate:
+        title_ru = None
+        summary_ru = None
         try:
             title_ru = await translate_title(item["title"])
-            summary_ru = None
-            if item.get("do_summary") and summaries_left > 0 and item.get("summary"):
-                summary_ru = await translate_summary(item["summary"])
-                if summary_ru:
-                    summaries_left -= 1
         except TranslateRateLimited:
             log.warning("Stopping auto-translate for this ingest cycle")
             break
+        if item.get("do_summary") and summaries_left > 0 and item.get("summary"):
+            try:
+                summary_ru = await translate_summary(item["summary"])
+                if summary_ru:
+                    summaries_left -= 1
+            except TranslateRateLimited:
+                log.warning("Stopping auto-translate after title; summary rate-limited")
+                if title_ru:
+                    translations.append(
+                        {
+                            "id": item.get("id"),
+                            "guid": item["guid"],
+                            "title_ru": title_ru,
+                            "summary_ru": None,
+                        }
+                    )
+                break
         if title_ru or summary_ru:
             translations.append(
                 {
