@@ -46,11 +46,34 @@ python run.py
 
 Хранение: только последние `RETENTION_DAYS` дней (по умолчанию 7) — старые записи удаляются при каждом сборе.
 
-## Деплой на VPS (кратко)
+## CI/CD
 
-1. Скопировать проект, создать venv, установить зависимости.
+В репозитории два workflow:
+
+| Workflow | Когда | Что делает |
+|---|---|---|
+| **CI** | push / PR в `master`/`main` | install, `compileall`, import check, `pytest` |
+| **CD** | после успешного CI или вручную | SSH на VPS → `git pull`, `pip install`, `systemctl restart sec-news` |
+
+### Secrets для CD (Settings → Secrets and variables → Actions)
+
+| Secret | Пример | Обязателен |
+|---|---|---|
+| `DEPLOY_HOST` | `203.0.113.10` | да |
+| `DEPLOY_USER` | `deploy` | да |
+| `DEPLOY_SSH_KEY` | private key (весь PEM) | да |
+| `DEPLOY_PORT` | `22` | нет |
+| `DEPLOY_PATH` | `/opt/sec-news-aggregator` | нет |
+
+Без `DEPLOY_HOST` CD просто пропускается (skipped), CI продолжает работать.
+
+Первичная установка на сервер: `deploy/bootstrap-server.sh`.
+
+## Деплой на VPS (вручную)
+
+1. Скопировать/клонировать проект, создать venv, установить зависимости.
 2. Выставить `.env` (сильный пароль, `APP_HOST=127.0.0.1`).
-3. Запуск через systemd + reverse proxy (Caddy/Nginx) с TLS и basic auth на proxy *или* встроенный basic auth приложения.
+3. Запуск через systemd + reverse proxy (Caddy/Nginx) с TLS.
 4. Рекомендуемый профиль: **4 GB RAM**.
 
 Пример unit-файла: `deploy/sec-news.service`.
