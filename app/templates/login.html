@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход — sec-news</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <h1>sec-news</h1>
+    <p class="muted">Вход в агрегатор</p>
+    <form method="post" action="/login" class="login-form js-action" data-loading-text="Вход…">
+      {% include "partials/csrf.html" %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <label>
+        Логин
+        <input type="text" name="username" autocomplete="username" required autofocus>
+      </label>
+      <label>
+        Пароль
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit">Войти</button>
+    </form>
+  </main>
+  {% include "partials/toast.html" %}
+</body>
+</html>

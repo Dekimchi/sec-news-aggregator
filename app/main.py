@@ -1,0 +1,405 @@
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Annotated
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from fastapi import Depends, FastAPI, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from app.auth import (
+    LoginRequired,
+    login_form_handler,
+    login_redirect,
+    logout_response,
+    require_user,
+)
+from app.config import get_settings
+from app.db import (
+    connect,
+    count_articles,
+    distinct_sources,
+    get_article,
+    get_ingest_run,
+    list_articles,
+    list_ingest_runs,
+    update_translation,
+)
+from app.ingest import IngestBusy, ingest_once
+from app.labels import (
+    CONTENT_TYPE_LABELS,
+    DIRECTION_LABELS,
+    TECHNOLOGY_LABELS,
+    label_content_type,
+    label_direction,
+    label_technology,
+)
+from app.flash import FLASH_COOKIE, attach_flash, redirect_with_flash
+from app.security import (
+    CSRF_COOKIE,
+    get_or_create_csrf,
+    safe_next_url,
+    set_csrf_cookie,
+    validate_csrf,
+)
+from app.translate import TranslateRateLimited, translate_article_fields
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+log = logging.getLogger("sec-news")
+
+BASE_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.filters["label_direction"] = label_direction
+templates.env.filters["label_content_type"] = label_content_type
+templates.env.filters["label_technology"] = label_technology
+scheduler = AsyncIOScheduler()
+
+DIRECTIONS = list(DIRECTION_LABELS.keys())
+CONTENT_TYPES = list(CONTENT_TYPE_LABELS.keys())
+TECHNOLOGIES = list(TECHNOLOGY_LABELS.keys())
+
+WEAK_SECRETS = {"", "change-me", "dev-secret-change-on-server", "secnews"}
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    settings = get_settings()
+    if settings.app_secret in WEAK_SECRETS or settings.basic_auth_password in WEAK_SECRETS:
+        log.warning(
+            "Weak APP_SECRET / BASIC_AUTH_PASSWORD detected. "
+            "Change them in .env before exposing the service."
+        )
+    db = await connect()
+    await db.close()
+
+    async def _job():
+        try:
+            await ingest_once(allow_wait=False, trigger="scheduled")
+        except IngestBusy:
+            log.info("Scheduled ingest skipped: already running")
+        except Exception:  # noqa: BLE001
+            log.exception("Scheduled ingest failed")
+
+    scheduler.add_job(
+        _job,
+        "interval",
+        hours=settings.fetch_interval_hours,
+        id="ingest",
+        replace_existing=True,
+        max_instances=1,
+        next_run_time=datetime.now() + timedelta(seconds=3),
+    )
+    scheduler.start()
+    log.info("Scheduler started: every %s hours", settings.fetch_interval_hours)
+    yield
+    scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="sec-news-aggregator", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    attach_flash(request)
+    csrf = get_or_create_csrf(request)
+    request.state.csrf_token = csrf
+    response = await call_next(request)
+    if not request.cookies.get(CSRF_COOKIE):
+        set_csrf_cookie(response, csrf)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; style-src 'self'; script-src 'self'; "
+        "img-src 'self' data:; base-uri 'self'; form-action 'self'",
+    )
+    if request.cookies.get(FLASH_COOKIE) and getattr(request.state, "flash", None):
+        response.delete_cookie(FLASH_COOKIE, path="/")
+    return response
+
+
+@app.exception_handler(LoginRequired)
+async def _login_required(_: Request, exc: LoginRequired):
+    return login_redirect(exc)
+
+
+def _multi(values: list[str] | None) -> list[str] | None:
+    if not values:
+        return None
+    cleaned = [v for v in values if v]
+    return cleaned or None
+
+
+def _csrf_or_flash(request: Request, csrf_token: str | None, fallback: str = "/"):
+    if validate_csrf(request, csrf_token):
+        return None
+    return redirect_with_flash(fallback, "Сессия устарела, обновите страницу и повторите", "error")
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(
+    request: Request,
+    next: Annotated[str, Query()] = "/",
+):
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "next": safe_next_url(next),
+        },
+    )
+
+
+@app.post("/login")
+async def login_submit(
+    request: Request,
+    username: Annotated[str, Form()],
+    password: Annotated[str, Form()],
+    next: Annotated[str, Form()] = "/",
+    csrf_token: Annotated[str | None, Form()] = None,
+):
+    return await login_form_handler(request, username, password, next, csrf_token)
+
+
+@app.post("/logout")
+async def logout(
+    request: Request,
+    csrf_token: Annotated[str | None, Form()] = None,
+):
+    bad = _csrf_or_flash(request, csrf_token, "/login")
+    if bad:
+        return bad
+    return logout_response()
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(
+    request: Request,
+    _: Annotated[str, Depends(require_user)],
+    direction: Annotated[list[str] | None, Query()] = None,
+    content_type: Annotated[list[str] | None, Query()] = None,
+    technology: Annotated[list[str] | None, Query()] = None,
+    source: Annotated[list[str] | None, Query()] = None,
+    q: Annotated[str | None, Query()] = None,
+    translated: Annotated[str | None, Query()] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+):
+    translated_only = None
+    if translated == "yes":
+        translated_only = True
+    elif translated == "no":
+        translated_only = False
+
+    limit = 40
+    offset = (page - 1) * limit
+    db = await connect()
+    try:
+        articles = await list_articles(
+            db,
+            directions=_multi(direction),
+            content_types=_multi(content_type),
+            technologies=_multi(technology),
+            source_ids=_multi(source),
+            hide_legislation=True,
+            q=q.strip() if q else None,
+            translated_only=translated_only,
+            limit=limit,
+            offset=offset,
+        )
+        total = await count_articles(db, hide_legislation=True)
+        sources = await distinct_sources(db)
+    finally:
+        await db.close()
+
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {
+            "articles": articles,
+            "sources": sources,
+            "directions": DIRECTIONS,
+            "content_types": CONTENT_TYPES,
+            "technologies": TECHNOLOGIES,
+            "selected_directions": direction or [],
+            "selected_content_types": content_type or [],
+            "selected_technologies": technology or [],
+            "selected_sources": source or [],
+            "q": q or "",
+            "translated": translated or "",
+            "page": page,
+            "has_next": len(articles) == limit,
+            "total": total,
+        },
+    )
+
+
+@app.get("/article/{article_id}", response_class=HTMLResponse)
+async def article_page(
+    request: Request,
+    article_id: int,
+    _: Annotated[str, Depends(require_user)],
+):
+    db = await connect()
+    try:
+        article = await get_article(db, article_id)
+    finally:
+        await db.close()
+    if not article:
+        return HTMLResponse("Not found", status_code=404)
+    return templates.TemplateResponse(
+        request,
+        "article.html",
+        {"article": article},
+    )
+
+
+@app.post("/article/{article_id}/translate")
+async def translate_one(
+    request: Request,
+    article_id: int,
+    _: Annotated[str, Depends(require_user)],
+    csrf_token: Annotated[str | None, Form()] = None,
+):
+    bad = _csrf_or_flash(request, csrf_token, f"/article/{article_id}")
+    if bad:
+        return bad
+
+    db = await connect()
+    try:
+        article = await get_article(db, article_id)
+    finally:
+        await db.close()
+
+    if not article:
+        return redirect_with_flash("/", "Статья не найдена", "error")
+
+    try:
+        title_ru, summary_ru = await translate_article_fields(
+            article["title"],
+            article.get("summary"),
+        )
+    except TranslateRateLimited:
+        return redirect_with_flash(
+            f"/article/{article_id}",
+            "Перевод временно недоступен (лимит API). Попробуйте позже.",
+            "error",
+        )
+
+    if title_ru or summary_ru:
+        db = await connect()
+        try:
+            await update_translation(db, article_id, title_ru, summary_ru)
+        finally:
+            await db.close()
+        return redirect_with_flash(
+            f"/article/{article_id}",
+            "Перевод выполнен",
+            "ok",
+        )
+    return redirect_with_flash(
+        f"/article/{article_id}",
+        "Не удалось получить перевод",
+        "error",
+    )
+
+
+@app.get("/updates", response_class=HTMLResponse)
+async def updates_page(
+    request: Request,
+    _: Annotated[str, Depends(require_user)],
+    highlight: Annotated[int | None, Query()] = None,
+):
+    db = await connect()
+    try:
+        runs = await list_ingest_runs(db, limit=50)
+        selected = None
+        if highlight:
+            selected = await get_ingest_run(db, highlight)
+        if selected is None and runs:
+            selected = runs[0]
+    finally:
+        await db.close()
+    return templates.TemplateResponse(
+        request,
+        "updates.html",
+        {
+            "runs": runs,
+            "selected": selected,
+            "highlight": highlight,
+        },
+    )
+
+
+@app.get("/updates/{run_id}", response_class=HTMLResponse)
+async def update_detail(
+    request: Request,
+    run_id: int,
+    _: Annotated[str, Depends(require_user)],
+):
+    db = await connect()
+    try:
+        selected = await get_ingest_run(db, run_id)
+        runs = await list_ingest_runs(db, limit=50)
+    finally:
+        await db.close()
+    if not selected:
+        return redirect_with_flash("/updates", "Запись обновления не найдена", "error")
+    return templates.TemplateResponse(
+        request,
+        "updates.html",
+        {
+            "runs": runs,
+            "selected": selected,
+            "highlight": run_id,
+        },
+    )
+
+
+@app.post("/admin/refresh")
+async def refresh(
+    request: Request,
+    _: Annotated[str, Depends(require_user)],
+    csrf_token: Annotated[str | None, Form()] = None,
+):
+    bad = _csrf_or_flash(request, csrf_token, "/updates")
+    if bad:
+        return bad
+    try:
+        stats = await ingest_once(allow_wait=True, trigger="manual")
+    except IngestBusy:
+        return redirect_with_flash(
+            "/updates",
+            "Сбор новостей уже выполняется — откройте историю чуть позже",
+            "info",
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Manual refresh failed")
+        return redirect_with_flash("/updates", f"Ошибка обновления: {exc}", "error")
+    run_id = stats.get("run_id")
+    failed = stats.get("failed_sources") or []
+    msg = (
+        f"Обновление завершено: новых {stats['inserted']}, "
+        f"переведено {stats['translated']}"
+    )
+    if failed:
+        msg += f". Недоступны: {', '.join(failed)}"
+        level = "info"
+    else:
+        level = "ok"
+    target = f"/updates/{run_id}" if run_id else "/updates"
+    return redirect_with_flash(target, msg, level)
+
+
+@app.get("/health")
+async def health():
+    return {"ok": True}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ article.title_ru or article.title }} — sec-news{% endblock %}
+{% block content %}
+<article class="detail">
+  <p class="crumb"><a href="/">← К ленте</a></p>
+  <h1>{% if article.title_ru %}{{ article.title_ru }}{% else %}{{ article.title }}{% endif %}</h1>
+  {% if article.title_ru and article.title_ru != article.title %}
+  <p class="orig-title">{{ article.title }}</p>
+  {% endif %}
+
+  <div class="badges">
+    <span class="badge">{{ article.direction|label_direction }}</span>
+    <span class="badge">{{ article.content_type|label_content_type }}</span>
+    {% for t in article.technologies %}
+    <span class="badge tech">{{ t|label_technology }}</span>
+    {% endfor %}
+    {% if article.translated %}<span class="badge ok">RU</span>{% endif %}
+  </div>
+
+  <p class="meta">{{ article.source_name }} · {{ article.published_at or article.fetched_at }}</p>
+
+  {% if article.summary_ru %}
+  <section class="block">
+    <h2>Кратко (RU)</h2>
+    <p>{{ article.summary_ru }}</p>
+  </section>
+  {% endif %}
+
+  {% if article.summary %}
+  <section class="block">
+    <h2>Summary</h2>
+    <p>{{ article.summary }}</p>
+  </section>
+  {% endif %}
+
+  <div class="actions">
+    <a class="button" href="{{ article.url }}" target="_blank" rel="noopener">Читать оригинал</a>
+    {% if not article.translated %}
+    <form method="post" action="/article/{{ article.id }}/translate" class="js-action"
+          data-pending-toast="Перевод…"
+          data-loading-text="Перевод…">
+      {% include "partials/csrf.html" %}
+      <button type="submit">Перевести заголовок и summary</button>
+    </form>
+    {% endif %}
+  </div>
+</article>
+{% endblock %}

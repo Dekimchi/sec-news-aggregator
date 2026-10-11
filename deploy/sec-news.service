@@ -1,0 +1,15 @@
+[Unit]
+Description=sec-news-aggregator
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/sec-news-aggregator
+Environment=PATH=/opt/sec-news-aggregator/.venv/bin
+ExecStart=/opt/sec-news-aggregator/.venv/bin/python run.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

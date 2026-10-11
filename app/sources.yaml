@@ -1,0 +1,109 @@
+# RSS/Atom sources focused on practical offensive & defensive security.
+# Add or disable entries as needed.
+
+sources:
+  # --- International ---
+  - id: thehackernews
+    name: The Hacker News
+    url: https://feeds.feedburner.com/TheHackersNews
+    lang: en
+    enabled: true
+
+  - id: krebs
+    name: Krebs on Security
+    url: https://krebsonsecurity.com/feed/
+    lang: en
+    enabled: true
+
+  - id: bleepingcomputer
+    name: BleepingComputer
+    url: https://www.bleepingcomputer.com/feed/
+    lang: en
+    enabled: true
+
+  - id: projectzero
+    name: Google Project Zero
+    url: https://googleprojectzero.blogspot.com/feeds/posts/default
+    lang: en
+    enabled: true
+
+  - id: portswigger
+    name: PortSwigger Research
+    url: https://portswigger.net/research/rss
+    lang: en
+    enabled: true
+
+  - id: trailofbits
+    name: Trail of Bits Blog
+    url: https://blog.trailofbits.com/feed/
+    lang: en
+    enabled: true
+
+  - id: msrc
+    name: Microsoft Security Response Center
+    url: https://msrc.microsoft.com/blog/feed
+    lang: en
+    enabled: true
+
+  - id: unit42
+    name: Palo Alto Unit 42
+    url: https://unit42.paloaltonetworks.com/feed/
+    lang: en
+    enabled: true
+
+  - id: rapid7
+    name: Rapid7 Blog
+    url: https://www.rapid7.com/rss.xml
+    lang: en
+    # Часто таймаутится; включайте при необходимости.
+    enabled: false
+
+  - id: dfir_report
+    name: The DFIR Report
+    url: https://thedfirreport.com/feed/
+    lang: en
+    prefer_type: incident_report
+    enabled: true
+
+  - id: hackernews_security
+    name: Hacker News (Security)
+    url: https://hnrss.org/newest?q=security+OR+vulnerability+OR+exploit+OR+CVE
+    lang: en
+    enabled: true
+
+  # --- Russian ---
+  - id: xakep
+    name: Xakep.ru
+    url: https://xakep.ru/feed/
+    lang: ru
+    enabled: true
+
+  - id: habr_infosec
+    name: Habr InfoSecurity
+    url: https://habr.com/ru/rss/hub/infosecurity/all/?fl=ru
+    lang: ru
+    enabled: true
+
+  - id: securelist_ru
+    name: Securelist (RU)
+    url: https://securelist.ru/feed/
+    lang: ru
+    enabled: true
+
+  - id: antimalware
+    name: Anti-Malware.ru
+    url: https://www.anti-malware.ru/rss.xml
+    lang: ru
+    enabled: true
+
+  - id: kaspersky_blog_ru
+    name: Kaspersky Blog (RU)
+    url: https://www.kaspersky.ru/blog/feed/
+    lang: ru
+    enabled: true
+
+  - id: hackware
+    name: HackWare.ru
+    url: https://hackware.ru/?feed=rss2
+    lang: ru
+    enabled: true
