@@ -2,9 +2,11 @@
 Description=Daily security package updates for sec-news host
 
 [Timer]
-OnCalendar=daily
+# ~04:00 UTC daily (with jitter) — security patches via unattended-upgrade
+OnCalendar=*-*-* 04:00:00
 Persistent=true
 RandomizedDelaySec=45m
+Unit=sec-news-system-update.service
 
 [Install]
 WantedBy=timers.target

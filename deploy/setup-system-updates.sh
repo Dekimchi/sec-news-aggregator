@@ -25,4 +25,9 @@ Unattended-Upgrade::Remove-Unused-Dependencies "true";
 EOF
 
 systemctl enable --now unattended-upgrades >/dev/null 2>&1 || true
+# Some VPS images mask apt-daily*.service — package refresh is handled by
+# sec-news-system-update.timer (apt-get update + unattended-upgrade).
+if systemctl cat apt-daily.service >/dev/null 2>&1; then
+  systemctl enable --now apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
+fi
 echo "unattended-upgrades configured (daily security patches)"

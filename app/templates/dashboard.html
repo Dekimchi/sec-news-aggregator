@@ -22,6 +22,32 @@
   </div>
 </section>
 
+<section class="schedule-panel">
+  <h2>Расписание</h2>
+  <div class="schedule-grid">
+    <div class="schedule-row">
+      <span class="schedule-name">Сбор статей</span>
+      <span class="schedule-when mono">каждые {{ schedule.fetch_interval_hours }} ч</span>
+      <span class="schedule-next muted">след.: {{ schedule.ingest_next }}</span>
+    </div>
+    <div class="schedule-row">
+      <span class="schedule-name">Дайджест Telegram</span>
+      <span class="schedule-when mono">{{ schedule.digest_label }}</span>
+      <span class="schedule-next muted">след.: {{ schedule.digest_next }}</span>
+    </div>
+    <div class="schedule-row">
+      <span class="schedule-name">Пакеты ОС (security)</span>
+      <span class="schedule-when mono">{{ schedule.os_update_label }}</span>
+      <span class="schedule-next muted">systemd · apt update + unattended-upgrade</span>
+    </div>
+    <div class="schedule-row">
+      <span class="schedule-name">GeoIP (РФ)</span>
+      <span class="schedule-when mono">{{ schedule.geoip_label }}</span>
+      <span class="schedule-next muted">timer sec-news-geoip</span>
+    </div>
+  </div>
+</section>
+
 <section class="status-strip">
   {% set last = stats.last_run %}
   <div class="status-cell">

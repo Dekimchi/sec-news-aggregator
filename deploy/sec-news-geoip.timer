@@ -2,9 +2,11 @@
 Description=Weekly refresh of Russian IP ranges for sec-news geo filter
 
 [Timer]
-OnCalendar=weekly
+# Monday ~03:30 UTC (with jitter)
+OnCalendar=Mon *-*-* 03:30:00
 Persistent=true
 RandomizedDelaySec=1h
+Unit=sec-news-geoip.service
 
 [Install]
 WantedBy=timers.target

@@ -486,6 +486,34 @@ input:focus, select:focus {
 }
 .dash-hero h1 { margin: 0 0 0.25rem; font-size: clamp(1.35rem, 3vw, 1.75rem); }
 
+.schedule-panel {
+  margin: 0.35rem 0 0.15rem;
+}
+.schedule-panel h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1.1rem;
+}
+.schedule-grid {
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 0.65rem 0.85rem;
+}
+.schedule-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1.1fr) minmax(10rem, 1.2fr) minmax(8rem, 1fr);
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(42, 59, 51, 0.55);
+}
+.schedule-row:last-child { border-bottom: 0; padding-bottom: 0.15rem; }
+.schedule-name { font-weight: 600; }
+.schedule-when { color: var(--text); font-size: 0.9rem; }
+.schedule-next { font-size: 0.86rem; min-width: 0; overflow-wrap: anywhere; }
+
 .status-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -665,6 +693,7 @@ input:focus, select:focus {
 
 @media (max-width: 960px) {
   .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .schedule-row { grid-template-columns: 1fr; gap: 0.15rem; }
 }
 
 @media (max-width: 860px) {
