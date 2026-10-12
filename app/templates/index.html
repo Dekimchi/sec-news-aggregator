@@ -115,10 +115,7 @@
     {% for group in feed_groups %}
     <section class="feed-group {% if group.fresh %}feed-group--fresh{% else %}feed-group--stale{% endif %}">
       <header class="feed-group-head">
-        <div>
-          <h2 class="feed-group-title">{{ group.label }}</h2>
-          <p class="feed-group-hint muted">{{ group.hint }} · {{ group.articles|length }} шт.</p>
-        </div>
+        <h2 class="feed-group-title">{{ group.label }}</h2>
         {% if group.fresh %}
         <span class="feed-group-badge">новое</span>
         {% else %}
@@ -126,49 +123,54 @@
         {% endif %}
       </header>
       <div class="feed-group-items">
-        {% for a in group.articles %}
-        {% set tier = interest_tier(a.effective_score if a.effective_score is defined else a.interest_score) %}
-        <article class="item {% if a.is_read %}item--read{% endif %} {% if tier == 'strong' %}item--hot item--hot-strong{% elif tier == 'hot' %}item--hot{% endif %}" style="--i: {{ loop.index0 }}">
-          {% if tier %}
-          <div class="hot-flag" title="Оценка {{ '%.0f'|format(a.effective_score if a.effective_score is defined else a.interest_score) }}">
-            {% if tier == 'strong' %}очень интересно{% else %}интересно{% endif %}
-            <span class="hot-score">{{ '%.0f'|format(a.effective_score if a.effective_score is defined else a.interest_score) }}</span>
-          </div>
-          {% endif %}
-          <div class="item-head">
-            <a class="title" href="/article/{{ a.id }}">
-              {% if a.title_ru %}{{ a.title_ru }}{% else %}{{ a.title }}{% endif %}
-            </a>
-            <div class="badges">
-              <span class="badge">{{ a.direction|label_direction }}</span>
-              <span class="badge">{{ a.content_type|label_content_type }}</span>
-              {% for t in a.technologies %}
-              <span class="badge tech">{{ t|label_technology }}</span>
-              {% endfor %}
-              {% if a.translated %}<span class="badge ok">RU</span>{% endif %}
-              {% if a.cluster_size and a.cluster_size > 1 %}<span class="badge warn">{{ a.cluster_size }} ист.</span>{% endif %}
-              {% if a.bookmarked %}<span class="badge ok">закладка</span>{% endif %}
+        {% for sub in group.subgroups %}
+        <div class="feed-subgroup">
+          <h3 class="feed-subgroup-title">{{ sub.label }}</h3>
+          {% for a in sub.articles %}
+          {% set tier = interest_tier(a.effective_score if a.effective_score is defined else a.interest_score) %}
+          <article class="item {% if a.is_read %}item--read{% endif %} {% if tier == 'strong' %}item--hot item--hot-strong{% elif tier == 'hot' %}item--hot{% endif %}" style="--i: {{ loop.index0 }}">
+            {% if tier %}
+            <div class="hot-flag" title="Оценка {{ '%.0f'|format(a.effective_score if a.effective_score is defined else a.interest_score) }}">
+              {% if tier == 'strong' %}очень интересно{% else %}интересно{% endif %}
+              <span class="hot-score">{{ '%.0f'|format(a.effective_score if a.effective_score is defined else a.interest_score) }}</span>
             </div>
-          </div>
-          {% if a.brief_ru %}
-          <p class="brief">{{ a.brief_ru }}</p>
-          {% else %}
-          <p class="summary">
-            {% if a.summary_ru %}{{ a.summary_ru }}{% elif a.summary %}{{ a.summary[:320] }}{% endif %}
-          </p>
-          {% endif %}
-          <div class="item-foot">
-            <span>{{ a.source_name }}</span>
-            <span class="mono">{{ (a.published_at or a.fetched_at)|format_vlad(with_tz=false) }}</span>
-            <a href="{{ a.url }}" target="_blank" rel="noopener">оригинал</a>
-          </div>
-          <div class="item-actions">
-            <form method="post" action="/article/{{ a.id }}/bookmark" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"><button class="btn btn-ghost" type="submit">{% if a.bookmarked %}★{% else %}☆{% endif %}</button></form>
-            <form method="post" action="/article/{{ a.id }}/read" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"><button class="btn btn-ghost" type="submit">{% if a.is_read %}прочитано{% else %}прочитал{% endif %}</button></form>
-            <form method="post" action="/article/{{ a.id }}/feedback" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"><input type="hidden" name="value" value="1"><button class="btn btn-ghost {% if a.feedback == 1 %}is-on{% endif %}" type="submit">👍</button></form>
-            <form method="post" action="/article/{{ a.id }}/feedback" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"><input type="hidden" name="value" value="-1"><button class="btn btn-ghost {% if a.feedback == -1 %}is-on{% endif %}" type="submit">👎</button></form>
-          </div>
-        </article>
+            {% endif %}
+            <div class="item-head">
+              <a class="title" href="/article/{{ a.id }}">
+                {% if a.title_ru %}{{ a.title_ru }}{% else %}{{ a.title }}{% endif %}
+              </a>
+              <div class="badges">
+                <span class="badge">{{ a.direction|label_direction }}</span>
+                <span class="badge">{{ a.content_type|label_content_type }}</span>
+                {% for t in a.technologies %}
+                <span class="badge tech">{{ t|label_technology }}</span>
+                {% endfor %}
+                {% if a.translated %}<span class="badge ok">RU</span>{% endif %}
+                {% if a.cluster_size and a.cluster_size > 1 %}<span class="badge warn">{{ a.cluster_size }} ист.</span>{% endif %}
+                {% if a.bookmarked %}<span class="badge ok">закладка</span>{% endif %}
+              </div>
+            </div>
+            {% if a.brief_ru %}
+            <p class="brief">{{ a.brief_ru }}</p>
+            {% else %}
+            <p class="summary">
+              {% if a.summary_ru %}{{ a.summary_ru }}{% elif a.summary %}{{ a.summary[:320] }}{% endif %}
+            </p>
+            {% endif %}
+            <div class="item-foot">
+              <span>{{ a.source_name }}</span>
+              <span class="mono">{{ (a.published_at or a.fetched_at)|format_vlad(with_tz=false) }}</span>
+              <a href="{{ a.url }}" target="_blank" rel="noopener">оригинал</a>
+            </div>
+            <div class="item-actions">
+              <form method="post" action="/article/{{ a.id }}/bookmark" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"><button class="btn btn-ghost" type="submit">{% if a.bookmarked %}★{% else %}☆{% endif %}</button></form>
+              <form method="post" action="/article/{{ a.id }}/read" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"><button class="btn btn-ghost" type="submit">{% if a.is_read %}прочитано{% else %}прочитал{% endif %}</button></form>
+              <form method="post" action="/article/{{ a.id }}/feedback" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"><input type="hidden" name="value" value="1"><button class="btn btn-ghost {% if a.feedback == 1 %}is-on{% endif %}" type="submit">👍</button></form>
+              <form method="post" action="/article/{{ a.id }}/feedback" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"><input type="hidden" name="value" value="-1"><button class="btn btn-ghost {% if a.feedback == -1 %}is-on{% endif %}" type="submit">👎</button></form>
+            </div>
+          </article>
+          {% endfor %}
+        </div>
         {% endfor %}
       </div>
     </section>

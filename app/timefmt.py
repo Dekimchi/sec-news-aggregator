@@ -77,20 +77,48 @@ def format_vladivostok(
     return f"{stamp} VLAT" if with_tz else stamp
 
 
-def group_articles_by_fetch_day(articles: list[dict]) -> list[dict]:
-    """Group feed items by Vladivostok calendar day of fetched_at (newest first)."""
+def _day_bucket_key(raw) -> tuple[str, datetime]:
+    dt = _parse_dt(raw)
+    if dt is None:
+        return "без даты", datetime.min.replace(tzinfo=UTC)
+    local = dt.astimezone(TZ_VLADIVOSTOK)
+    day_key = local.strftime("%d.%m.%Y")
+    sort_dt = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return day_key, sort_dt
+
+
+def _group_by_publish_day(articles: list[dict]) -> list[dict]:
+    """Nest articles by Vladivostok calendar day of published_at (newest first)."""
     buckets: dict[str, list[dict]] = {}
     order_keys: list[tuple[datetime, str]] = []
     for article in articles:
-        raw = article.get("fetched_at") or article.get("published_at")
-        dt = _parse_dt(raw)
-        if dt is None:
-            day_key = "без даты"
-            sort_dt = datetime.min.replace(tzinfo=UTC)
-        else:
-            local = dt.astimezone(TZ_VLADIVOSTOK)
-            day_key = local.strftime("%d.%m.%Y")
-            sort_dt = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_key, sort_dt = _day_bucket_key(
+            article.get("published_at") or article.get("fetched_at")
+        )
+        if day_key not in buckets:
+            buckets[day_key] = []
+            order_keys.append((sort_dt, day_key))
+        buckets[day_key].append(article)
+
+    order_keys.sort(key=lambda pair: pair[0], reverse=True)
+    return [
+        {
+            "date_key": day_key,
+            "label": f"Выход · {day_key}",
+            "articles": buckets[day_key],
+        }
+        for _, day_key in order_keys
+    ]
+
+
+def group_articles_by_fetch_day(articles: list[dict]) -> list[dict]:
+    """Group by fetch day, then nest by publish day (newest first)."""
+    buckets: dict[str, list[dict]] = {}
+    order_keys: list[tuple[datetime, str]] = []
+    for article in articles:
+        day_key, sort_dt = _day_bucket_key(
+            article.get("fetched_at") or article.get("published_at")
+        )
         if day_key not in buckets:
             buckets[day_key] = []
             order_keys.append((sort_dt, day_key))
@@ -100,6 +128,7 @@ def group_articles_by_fetch_day(articles: list[dict]) -> list[dict]:
     groups: list[dict] = []
     for index, (_, day_key) in enumerate(order_keys):
         fresh = index == 0
+        day_articles = buckets[day_key]
         groups.append(
             {
                 "date_key": day_key,
@@ -109,12 +138,8 @@ def group_articles_by_fetch_day(articles: list[dict]) -> list[dict]:
                     if fresh
                     else f"Прошлое обновление · {day_key}"
                 ),
-                "hint": (
-                    "Свежий сбор — карточки ярче"
-                    if fresh
-                    else "Более ранний сбор — приглушено"
-                ),
-                "articles": buckets[day_key],
+                "subgroups": _group_by_publish_day(day_articles),
+                "articles": day_articles,
             }
         )
     return groups
