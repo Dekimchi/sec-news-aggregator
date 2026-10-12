@@ -1,12 +1,12 @@
 [Unit]
-Description=Apply pending apt security updates for sec-news host
+Description=Run unattended security upgrades for sec-news host
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/unattended-upgrade -v
 Nice=10
-
-[Install]
-WantedBy=multi-user.target
+IOSchedulingClass=idle
+# Refresh indexes first — apt-daily may be masked on hardened VPS images.
+ExecStartPre=/usr/bin/apt-get update -qq
+ExecStart=/usr/bin/unattended-upgrade -v

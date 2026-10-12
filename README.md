@@ -68,11 +68,17 @@ gh pr merge --merge
 
 Feature-ветки и открытые PR **не деплоятся** на VPS.
 
-### Автообновления ПО
+### Расписание (VPS)
 
-- **Python / Actions**: Dependabot (`.github/dependabot.yml`) — еженедельные PR; в прод после CI и merge
-- **ОС на VPS**: `unattended-upgrades` + daily timer `sec-news-system-update.timer`
-- **GeoIP**: weekly timer `sec-news-geoip.timer`
+| Задача | Где крутится | Когда |
+|---|---|---|
+| Сбор RSS | APScheduler в `sec-news` | каждые `FETCH_INTERVAL_HOURS` (по умолчанию 4 ч) |
+| Дайджест Telegram | APScheduler в `sec-news` | ежедневно в `TELEGRAM_DIGEST_HOUR_UTC`:05 (по умолчанию 06:05 UTC) |
+| Security-пакеты ОС | `sec-news-system-update.timer` (`apt-get update` + `unattended-upgrade`) | ежедневно ~04:00 UTC |
+| GeoIP (РФ) | `sec-news-geoip.timer` | понедельник ~03:30 UTC |
+| Python-зависимости | Dependabot | еженедельные PR → CI → merge → CD |
+
+На дашборде портала блок **Расписание** показывает ближайшие запуски сбора и дайджеста.
 
 ### Secrets для CD (Settings → Secrets and variables → Actions)
 

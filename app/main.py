@@ -99,6 +99,31 @@ _CVE_QUERY = re.compile(r"^\s*(CVE-\d{4}-\d+)\s*$", re.I)
 WEAK_SECRETS = {"", "change-me", "dev-secret-change-on-server", "secnews"}
 
 
+def _scheduler_status() -> dict[str, Any]:
+    """Snapshot of in-process jobs + configured intervals for the dashboard."""
+    settings = get_settings()
+    jobs: dict[str, Any] = {}
+    if scheduler.running:
+        for job in scheduler.get_jobs():
+            nxt = job.next_run_time
+            jobs[job.id] = {
+                "next_run": nxt.isoformat() if nxt else None,
+                "next_run_display": nxt.strftime("%Y-%m-%d %H:%M UTC") if nxt else "—",
+            }
+    digest_on = bool(settings.telegram_digest_enabled and settings.telegram_bot_token)
+    hour = max(0, min(23, int(settings.telegram_digest_hour_utc)))
+    return {
+        "fetch_interval_hours": settings.fetch_interval_hours,
+        "digest_enabled": digest_on,
+        "digest_hour_utc": hour,
+        "digest_label": f"ежедневно в {hour:02d}:05 UTC" if digest_on else "выключен",
+        "ingest_next": (jobs.get("ingest") or {}).get("next_run_display", "—"),
+        "digest_next": (jobs.get("digest") or {}).get("next_run_display", "—"),
+        "os_update_label": "ежедневно ~04:00 UTC (systemd)",
+        "geoip_label": "понедельник ~03:30 UTC (systemd)",
+    }
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
@@ -724,6 +749,7 @@ async def dashboard_page(
             "runs": runs,
             "selected": selected,
             "highlight": run,
+            "schedule": _scheduler_status(),
         },
     )
 
