@@ -52,10 +52,10 @@ jobs:
           envs: BRANCH,APP_DIR
           script: |
             set -euo pipefail
-            case "$BRANCH" in
-              master|main) ;;
-              *) echo "Refusing to deploy non-production branch: $BRANCH" >&2; exit 1 ;;
-            esac
+            if [ "$BRANCH" != "master" ] && [ "$BRANCH" != "main" ]; then
+              echo "Refusing to deploy non-production branch: $BRANCH" >&2
+              exit 1
+            fi
             cd "$APP_DIR"
             git fetch origin
             # Discard any local drift on the server so pull never blocks CD.
