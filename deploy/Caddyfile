@@ -1,17 +1,10 @@
-# No-domain mode: HTTP + HTTPS with a local self-signed cert (browser warning is expected).
+# No-domain mode: HTTPS only (self-signed). Plain HTTP just redirects.
 {
 	auto_https off
 }
 
 :80 {
-	encode gzip
-	header {
-		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
-		Referrer-Policy same-origin
-		-Server
-	}
-	reverse_proxy 127.0.0.1:8000
+	redir https://{host}{uri} permanent
 }
 
 :443 {

@@ -67,6 +67,8 @@ jobs:
               journalctl -u caddy -n 40 --no-pager || true
               exit 1
             fi
-            curl -fsS "http://127.0.0.1/health" | grep -q '"ok":true'
+            # App is HTTPS-only; :80 only redirects to TLS.
             curl -fsSk "https://127.0.0.1/health" | grep -q '"ok":true'
+            code="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1/health || true)"
+            test "$code" = "301" -o "$code" = "308"
             echo "Deploy + proxy OK"
