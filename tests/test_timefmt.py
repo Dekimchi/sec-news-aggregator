@@ -39,9 +39,24 @@ def test_format_vladivostok():
 def test_group_articles_by_fetch_day_orders_newest_first():
     groups = group_articles_by_fetch_day(
         [
-            {"id": 1, "fetched_at": "2026-10-10T10:00:00+00:00", "title": "old"},
-            {"id": 2, "fetched_at": "2026-10-12T02:00:00+00:00", "title": "new"},
-            {"id": 3, "fetched_at": "2026-10-12T08:00:00+00:00", "title": "new2"},
+            {
+                "id": 1,
+                "fetched_at": "2026-10-10T10:00:00+00:00",
+                "published_at": "2026-10-09T12:00:00+00:00",
+                "title": "old",
+            },
+            {
+                "id": 2,
+                "fetched_at": "2026-10-12T02:00:00+00:00",
+                "published_at": "2026-10-11T08:00:00+00:00",
+                "title": "new",
+            },
+            {
+                "id": 3,
+                "fetched_at": "2026-10-12T08:00:00+00:00",
+                "published_at": "2026-10-12T01:00:00+00:00",
+                "title": "new2",
+            },
         ]
     )
     assert len(groups) == 2
@@ -50,3 +65,9 @@ def test_group_articles_by_fetch_day_orders_newest_first():
     assert [a["id"] for a in groups[0]["articles"]] == [2, 3]
     assert groups[1]["fresh"] is False
     assert "Прошлое" in groups[1]["label"]
+    # Nested by publish day (VLAT): id3 publish 12.10, id2 publish 11.10
+    assert [s["date_key"] for s in groups[0]["subgroups"]] == ["12.10.2026", "11.10.2026"]
+    assert [a["id"] for a in groups[0]["subgroups"][0]["articles"]] == [3]
+    assert [a["id"] for a in groups[0]["subgroups"][1]["articles"]] == [2]
+    assert "Выход" in groups[0]["subgroups"][0]["label"]
+    assert "hint" not in groups[0]

@@ -129,8 +129,9 @@
       var toggle = qs("[data-dropdown-toggle]", root);
       var panel = qs("[data-dropdown-panel]", root);
       if (!toggle || !panel) return;
-      panel.hidden = true;
       root.classList.remove("is-open");
+      panel.setAttribute("hidden", "");
+      panel.setAttribute("aria-hidden", "true");
       toggle.setAttribute("aria-expanded", "false");
     }
 
@@ -138,8 +139,9 @@
       var toggle = qs("[data-dropdown-toggle]", root);
       var panel = qs("[data-dropdown-panel]", root);
       if (!toggle || !panel) return;
-      panel.hidden = false;
       root.classList.add("is-open");
+      panel.removeAttribute("hidden");
+      panel.setAttribute("aria-hidden", "false");
       toggle.setAttribute("aria-expanded", "true");
     }
 
@@ -155,7 +157,6 @@
       var panel = qs("[data-dropdown-panel]", root);
       if (!toggle || !panel) return;
 
-      // Ensure closed initial state even if CSS previously forced display.
       closeOne(root);
 
       toggle.addEventListener("click", function (e) {
@@ -165,15 +166,19 @@
         closeAll();
         if (!wasOpen) openOne(root);
       });
-      panel.addEventListener("click", function (e) {
-        // Keep open while interacting inside; links still navigate.
-        e.stopPropagation();
-      });
     });
 
-    document.addEventListener("click", function () {
-      closeAll();
-    });
+    // Capture phase: close before other handlers; ignore clicks inside open menus.
+    document.addEventListener(
+      "pointerdown",
+      function (e) {
+        var open = document.querySelector("[data-dropdown].is-open");
+        if (!open) return;
+        if (open.contains(e.target)) return;
+        closeAll();
+      },
+      true
+    );
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") closeAll();
     });
