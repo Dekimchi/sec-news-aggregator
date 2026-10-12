@@ -945,3 +945,42 @@ async def digest_now(
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+
+_READY_TEMPLATES = ("base.html", "login.html", "index.html", "dashboard.html", "article.html")
+_READY_FILTERS = (
+    "label_direction",
+    "label_content_type",
+    "label_technology",
+    "format_vlad",
+    "hours_word",
+    "hours_phrase",
+)
+
+
+@app.get("/ready")
+async def ready():
+    """Deep readiness: process up, scheduler alive, critical templates/filters load."""
+    missing = [name for name in _READY_FILTERS if name not in templates.env.filters]
+    if missing:
+        return JSONResponse(
+            {"ok": False, "error": "missing_filters", "missing": missing},
+            status_code=503,
+        )
+    compiled: list[str] = []
+    try:
+        for name in _READY_TEMPLATES:
+            templates.env.get_template(name)
+            compiled.append(name)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Readiness template compile failed")
+        return JSONResponse(
+            {"ok": False, "error": "template_compile", "detail": str(exc)},
+            status_code=503,
+        )
+    return {
+        "ok": True,
+        "scheduler_running": bool(scheduler.running),
+        "templates": compiled,
+        "filters": list(_READY_FILTERS),
+    }

@@ -61,8 +61,10 @@ gh pr merge --merge
 
 | Workflow | Когда | Что делает |
 |---|---|---|
-| **CI** | любой push + PR в `master`/`main` | install, `compileall`, import check, `pytest`, Bandit, pip-audit |
-| **CD** | только после успешного CI на `master`/`main` | SSH на VPS → reset, `pip install`, proxy/geo/updates, restart |
+| **CI** | любой push + PR в `master`/`main` | install, `compileall`, import check, проверка шаблонов/фильтров, `pytest`, Bandit, pip-audit |
+| **CD** | только после успешного CI на `master`/`main` | SSH на VPS → stop → reset → `pip install` → proxy/geo → start → **smoke** (`deploy/smoke_check.sh`) |
+
+После CD smoke обязан пройти: `/health`, `/ready` (шаблоны + фильтры + scheduler), `/login`, HTTPS через Caddy, HTTP→HTTPS redirect. Иначе деплой падает, сервис считается неисправным.
 
 Интерфейс: вкладки **Лента** / **Дашборд**, интересные сверху по умолчанию, фильтры в выпадающем списке.
 
