@@ -2,73 +2,74 @@
 {% block title %}sec-news — лента{% endblock %}
 {% block main_class %}main-feed{% endblock %}
 {% block content %}
-<aside class="filters" id="filters-panel" data-drawer>
-  <div class="filters-head">
-    <h2>Фильтры</h2>
-    <button type="button" class="btn btn-ghost mobile-only" data-drawer-close aria-label="Закрыть фильтры">Закрыть</button>
-  </div>
-  <form method="get" action="/" class="filter-form" id="filter-form">
-    <label class="field">
-      <span>Поиск</span>
-      <input type="search" name="q" value="{{ q }}" placeholder="CVE, XSS, ransomware…">
-    </label>
-
-    <fieldset>
-      <legend>Направление</legend>
-      {% for d in directions %}
-      <label class="check"><input type="checkbox" name="direction" value="{{ d }}" {% if d in selected_directions %}checked{% endif %}> {{ d|label_direction }}</label>
-      {% endfor %}
-    </fieldset>
-
-    <fieldset>
-      <legend>Тип</legend>
-      {% for t in content_types %}
-      <label class="check"><input type="checkbox" name="content_type" value="{{ t }}" {% if t in selected_content_types %}checked{% endif %}> {{ t|label_content_type }}</label>
-      {% endfor %}
-    </fieldset>
-
-    <fieldset>
-      <legend>Технологии</legend>
-      {% for t in technologies %}
-      <label class="check"><input type="checkbox" name="technology" value="{{ t }}" {% if t in selected_technologies %}checked{% endif %}> {{ t|label_technology }}</label>
-      {% endfor %}
-    </fieldset>
-
-    <fieldset>
-      <legend>Источник</legend>
-      {% for s in sources %}
-      <label class="check"><input type="checkbox" name="source" value="{{ s.id }}" {% if s.id in selected_sources %}checked{% endif %}> {{ s.name }}</label>
-      {% else %}
-      <p class="muted">Источники появятся после первого сбора</p>
-      {% endfor %}
-    </fieldset>
-
-    <label class="field">
-      <span>Перевод</span>
-      <select name="translated">
-        <option value="" {% if not translated %}selected{% endif %}>любой</option>
-        <option value="yes" {% if translated == 'yes' %}selected{% endif %}>есть RU</option>
-        <option value="no" {% if translated == 'no' %}selected{% endif %}>без RU</option>
-      </select>
-    </label>
-
-    <div class="actions">
-      <button type="submit" class="btn btn-accent">Применить</button>
-      <a class="ghost-link" href="/">Сбросить</a>
-    </div>
-  </form>
-</aside>
-<div class="drawer-backdrop" data-drawer-backdrop hidden></div>
-
 <section class="feed">
   <div class="feed-toolbar">
     <div class="feed-toolbar-left">
-      <button type="button" class="btn btn-ghost mobile-only" data-drawer-open aria-controls="filters-panel">Фильтры</button>
-      <p class="meta">{{ articles|length }} на странице · {{ total }} в базе</p>
+      <div class="filter-dropdown" data-dropdown>
+        <button type="button" class="btn btn-ghost" id="filters-toggle" data-dropdown-toggle aria-expanded="false" aria-controls="filters-panel">
+          Поиск и фильтры
+          {% set active_filters = (q and 1 or 0) + selected_directions|length + selected_content_types|length + selected_technologies|length + selected_sources|length + (1 if translated else 0) %}
+          {% if active_filters %}<span class="filter-count">{{ active_filters }}</span>{% endif %}
+        </button>
+        <div class="filter-popover" id="filters-panel" data-dropdown-panel hidden>
+          <form method="get" action="/" class="filter-form" id="filter-form">
+            <label class="field">
+              <span>Поиск</span>
+              <input type="search" name="q" value="{{ q }}" placeholder="CVE, XSS, ransomware…" autofocus>
+            </label>
+
+            <fieldset>
+              <legend>Направление</legend>
+              {% for d in directions %}
+              <label class="check"><input type="checkbox" name="direction" value="{{ d }}" {% if d in selected_directions %}checked{% endif %}> {{ d|label_direction }}</label>
+              {% endfor %}
+            </fieldset>
+
+            <fieldset>
+              <legend>Тип</legend>
+              {% for t in content_types %}
+              <label class="check"><input type="checkbox" name="content_type" value="{{ t }}" {% if t in selected_content_types %}checked{% endif %}> {{ t|label_content_type }}</label>
+              {% endfor %}
+            </fieldset>
+
+            <fieldset>
+              <legend>Технологии</legend>
+              {% for t in technologies %}
+              <label class="check"><input type="checkbox" name="technology" value="{{ t }}" {% if t in selected_technologies %}checked{% endif %}> {{ t|label_technology }}</label>
+              {% endfor %}
+            </fieldset>
+
+            <fieldset>
+              <legend>Источник</legend>
+              {% for s in sources %}
+              <label class="check"><input type="checkbox" name="source" value="{{ s.id }}" {% if s.id in selected_sources %}checked{% endif %}> {{ s.name }}</label>
+              {% else %}
+              <p class="muted">Источники появятся после первого сбора</p>
+              {% endfor %}
+            </fieldset>
+
+            <label class="field">
+              <span>Перевод</span>
+              <select name="translated">
+                <option value="" {% if not translated %}selected{% endif %}>любой</option>
+                <option value="yes" {% if translated == 'yes' %}selected{% endif %}>есть RU</option>
+                <option value="no" {% if translated == 'no' %}selected{% endif %}>без RU</option>
+              </select>
+            </label>
+
+            <div class="actions">
+              <button type="submit" class="btn btn-accent">Применить</button>
+              <a class="ghost-link" href="/">Сбросить</a>
+            </div>
+          </form>
+        </div>
+      </div>
+      <p class="meta">{{ articles|length }} на странице · {{ total }} в базе · сверху интересные</p>
     </div>
     <label class="field field-inline sort-field">
       <span>Сортировка</span>
       <select name="sort" id="sort-select" form="filter-form" data-auto-submit>
+        <option value="interest" {% if sort == 'interest' %}selected{% endif %}>По умолчанию</option>
         {% for key, label in sort_options.items() %}
         <option value="{{ key }}" {% if sort == key %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
@@ -100,7 +101,7 @@
         </div>
       </div>
       <p class="summary">
-        {% if a.summary_ru %}{{ a.summary_ru }}{% elif a.summary %}{{ a.summary[:320] }}{% endif %}
+        {% if a.summary_ru %}{{ a.summary_ru }}{% elif a.summary %}{{ a.summary[:320] %}{% endif %}
       </p>
       <div class="item-foot">
         <span>{{ a.source_name }}</span>

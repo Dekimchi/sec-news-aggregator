@@ -66,7 +66,7 @@ jobs:
             . .venv/bin/activate
             pip install --upgrade pip
             pip install -r requirements.txt
-            chmod +x deploy/setup-proxy.sh deploy/setup-geo-ru.sh
+            chmod +x deploy/setup-proxy.sh deploy/setup-geo-ru.sh deploy/setup-system-updates.sh
             bash deploy/setup-proxy.sh
             systemctl restart sec-news
             sleep 3

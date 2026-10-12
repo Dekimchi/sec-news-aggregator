@@ -50,6 +50,8 @@ install -m 644 "$APP_DIR/deploy/fail2ban/sec-news-auth.conf" /etc/fail2ban/filte
 install -m 644 "$APP_DIR/deploy/fail2ban/sec-news-auth.local" /etc/fail2ban/jail.d/sec-news-auth.local
 install -m 644 "$APP_DIR/deploy/sec-news-geoip.service" /etc/systemd/system/sec-news-geoip.service
 install -m 644 "$APP_DIR/deploy/sec-news-geoip.timer" /etc/systemd/system/sec-news-geoip.timer
+install -m 644 "$APP_DIR/deploy/sec-news-system-update.service" /etc/systemd/system/sec-news-system-update.service
+install -m 644 "$APP_DIR/deploy/sec-news-system-update.timer" /etc/systemd/system/sec-news-system-update.timer
 # Point the unit at the real app path (supports non-default DEPLOY_PATH).
 sed -i "s|/opt/sec-news-aggregator|$APP_DIR|g" /etc/systemd/system/sec-news-geoip.service
 
@@ -60,7 +62,8 @@ ufw allow 443/tcp >/dev/null
 ufw --force enable >/dev/null
 
 systemctl daemon-reload
-systemctl enable caddy fail2ban sec-news-geoip.service sec-news-geoip.timer >/dev/null
+systemctl enable caddy fail2ban sec-news-geoip.service sec-news-geoip.timer \
+  sec-news-system-update.timer >/dev/null
 systemctl restart fail2ban
 caddy validate --config /etc/caddy/Caddyfile
 systemctl restart caddy
@@ -71,10 +74,13 @@ if ! systemctl --no-pager --quiet is-active caddy; then
   exit 1
 fi
 
-chmod +x "$APP_DIR/deploy/setup-geo-ru.sh"
+chmod +x "$APP_DIR/deploy/setup-geo-ru.sh" "$APP_DIR/deploy/setup-system-updates.sh"
 bash "$APP_DIR/deploy/setup-geo-ru.sh"
+bash "$APP_DIR/deploy/setup-system-updates.sh"
 systemctl start sec-news-geoip.timer
+systemctl start sec-news-system-update.timer
 
 echo "Proxy configured (no domain): HTTPS only at https://SERVER_IP/ (self-signed); HTTP redirects"
 echo "Geo-IP: ports 80/443 limited to RU ranges; SSH remains unrestricted for CD/admin"
+echo "Updates: unattended-upgrades + daily timer; Python deps via Dependabot PRs"
 fail2ban-client status sec-news-auth >/dev/null 2>&1 && echo "fail2ban jail: sec-news-auth OK" || echo "fail2ban jail: check later"

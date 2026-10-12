@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily security package updates for sec-news host
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=45m
+
+[Install]
+WantedBy=timers.target
