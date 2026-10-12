@@ -1,0 +1,53 @@
+name: Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+    branches: [master, main]
+
+jobs:
+  review:
+    name: review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    steps:
+      - name: Require completed code review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+
+          labels="$(gh api "repos/$REPO/pulls/$PR" --jq '[.labels[].name] | join(",")')"
+          echo "Labels: ${labels:-<none>}"
+
+          if echo ",$labels," | grep -qi ',code-reviewed,'; then
+            echo "OK: label code-reviewed present"
+            exit 0
+          fi
+
+          approvals="$(gh api "repos/$REPO/pulls/$PR/reviews" --jq \
+            --arg author "$AUTHOR" \
+            '[.[] | select(.state=="APPROVED" and .user.login != $author)] | length')"
+          echo "Non-author approvals: $approvals"
+          if [ "${approvals:-0}" -ge 1 ]; then
+            echo "OK: approving review from another user"
+            exit 0
+          fi
+
+          cat <<'EOF' >&2
+          REVIEW GATE FAILED
+
+          Before merge, complete a code review and either:
+            1) add label: code-reviewed
+               gh pr edit --add-label code-reviewed
+            2) or get an APPROVED review from another GitHub user
+
+          For Cursor agents: run Bugbot/security review, fix findings, then add the label.
+          EOF
+          exit 1

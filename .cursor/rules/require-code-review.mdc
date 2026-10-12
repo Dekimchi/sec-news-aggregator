@@ -1,0 +1,17 @@
+---
+description: Require code review before merging to master
+alwaysApply: true
+---
+
+# Code review gate
+
+Before merging any PR into `master`/`main`:
+
+1. Run a Bugbot review (or equivalent security/code review) on the branch changes.
+2. Fix blocking findings or document why they are accepted.
+3. Add the GitHub label `code-reviewed`:
+   `gh pr edit <N> --add-label code-reviewed`
+4. Wait until CI jobs `test` and `review` are green.
+5. Only then merge.
+
+Do not merge without the review gate. Do not remove/bypass branch protection.

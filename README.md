@@ -48,21 +48,26 @@ python run.py
 
 ## CI/CD и ветки
 
-Прямые коммиты в `master` нежелательны: feature-ветка → CI → PR → merge только после зелёных проверок → CD.
+Прямые коммиты в `master` запрещены правилами ветки. Путь: feature → PR → **ревью** → зелёные checks → merge → CD.
 
 ```bash
 git checkout -b feature/my-change
 # правки, коммиты
 git push -u origin feature/my-change
 gh pr create --base master --fill
-# дождаться CI, затем:
+# ревью (Bugbot / вручную), затем:
+gh pr edit --add-label code-reviewed
+# дождаться checks test + review, затем:
 gh pr merge --merge
 ```
 
 | Workflow | Когда | Что делает |
 |---|---|---|
-| **CI** | любой push + PR в `master`/`main` | install, `compileall`, import check, проверка шаблонов/фильтров, `pytest`, Bandit, pip-audit |
+| **CI (`test`)** | любой push + PR в `master`/`main` | install, `compileall`, import check, шаблоны/фильтры, `pytest`, Bandit, pip-audit |
+| **Review (`review`)** | каждый PR в `master`/`main` | gate: нужен label `code-reviewed` или APPROVED-ревью от другого пользователя |
 | **CD** | только после успешного CI на `master`/`main` | SSH на VPS → stop → reset → `pip install` → proxy/geo → start → **smoke** (`deploy/smoke_check.sh`) |
+
+Обязательные status checks на `master`: `test` + `review`. Без ревью merge заблокирован.
 
 После CD smoke обязан пройти: `/health`, `/ready` (шаблоны + фильтры + scheduler), `/login`, HTTPS через Caddy, HTTP→HTTPS redirect. Иначе деплой падает, сервис считается неисправным.
 
