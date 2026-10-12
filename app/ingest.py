@@ -14,6 +14,7 @@ import feedparser
 import httpx
 import yaml
 
+from app.brief import build_brief_ru
 from app.classifier import classify
 from app.config import get_settings
 from app.db import (
@@ -23,8 +24,10 @@ from app.db import (
     is_older_than,
     list_untranslated_titles,
     save_ingest_run,
+    update_brief,
     upsert_article,
 )
+from app.notify import alert_critical_article
 from app.security import is_http_url
 from app.translate import (
     TranslateRateLimited,
@@ -266,6 +269,7 @@ async def _ingest_body_work(
                 if not inserted:
                     continue
                 stats["inserted"] += 1
+                stats.setdefault("new_articles", []).append(dict(article))
                 if settings.translate_enabled and not is_ru:
                     pending_translate.append(
                         {
@@ -360,6 +364,38 @@ async def _ingest_body_work(
             await db.commit()
         finally:
             await db.close()
+
+    # Briefs + Telegram alerts for newly inserted hot items.
+    new_articles = list(stats.pop("new_articles", []) or [])
+    briefs_left = settings.brief_max_per_ingest
+    for article in new_articles:
+        try:
+            await alert_critical_article(article)
+        except Exception:  # noqa: BLE001
+            log.exception("Critical alert failed")
+        score = float(article.get("interest_score") or 0)
+        if (
+            settings.brief_enabled
+            and briefs_left > 0
+            and score >= settings.brief_min_score
+            and article.get("id")
+            and not article.get("brief_ru")
+        ):
+            try:
+                brief = await build_brief_ru(
+                    article.get("title") or "",
+                    article.get("summary_ru") or article.get("summary"),
+                    already_ru=bool(article.get("translated")),
+                )
+                if brief:
+                    db = await connect()
+                    try:
+                        await update_brief(db, int(article["id"]), brief)
+                    finally:
+                        await db.close()
+                    briefs_left -= 1
+            except Exception:  # noqa: BLE001
+                log.exception("Brief generation failed for article %s", article.get("id"))
 
     if stats["errors"]:
         status = "partial"

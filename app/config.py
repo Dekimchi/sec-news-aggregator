@@ -30,6 +30,20 @@ class Settings(BaseSettings):
     hide_legislation_by_default: bool = True
     retention_days: int = 7
 
+    # Telegram (optional)
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    telegram_alerts_enabled: bool = True
+    telegram_alert_min_score: float = 75.0
+    telegram_digest_enabled: bool = True
+    telegram_digest_hour_utc: int = 6
+
+    # Hot-article briefs
+    brief_enabled: bool = True
+    brief_max_chars: int = 280
+    brief_min_score: float = 55.0
+    brief_max_per_ingest: int = 8
+
 
 @lru_cache
 def get_settings() -> Settings:

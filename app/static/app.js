@@ -64,9 +64,33 @@
     });
   }
 
+  function setupPresetSave() {
+    var form = qs("#preset-save-form");
+    var out = qs("#preset-params-json");
+    var filterForm = qs("#filter-form");
+    if (!form || !out || !filterForm) return;
+    form.addEventListener("submit", function () {
+      var data = new FormData(filterForm);
+      var params = {};
+      data.forEach(function (value, key) {
+        if (key === "page") return;
+        if (["direction", "content_type", "technology", "source"].indexOf(key) >= 0) {
+          params[key] = params[key] || [];
+          params[key].push(value);
+        } else {
+          params[key] = value;
+        }
+      });
+      var sort = qs("#sort-select");
+      if (sort) params.sort = sort.value;
+      out.value = JSON.stringify(params);
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     setupMenu();
     setupDropdown();
     setupAutoSubmit();
+    setupPresetSave();
   });
 })();

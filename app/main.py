@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import json
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import urlencode
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -20,6 +22,7 @@ from app.auth import (
     logout_response,
     require_user,
 )
+from app.cluster import extract_cves
 from app.config import get_settings
 from app.db import (
     connect,
@@ -27,8 +30,11 @@ from app.db import (
     dashboard_stats,
     distinct_sources,
     get_article,
+    get_articles_by_ids,
     get_ingest_run,
     list_articles,
+    list_cluster_members,
+    list_hot_for_digest,
     list_ingest_runs,
     update_translation,
 )
@@ -42,6 +48,7 @@ from app.labels import (
     label_direction,
     label_technology,
 )
+from app.notify import send_daily_digest
 from app.scoring import HOT_STRONG_THRESHOLD, HOT_THRESHOLD, interest_tier
 from app.security import (
     CSRF_COOKIE,
@@ -51,6 +58,16 @@ from app.security import (
     validate_csrf,
 )
 from app.translate import TranslateRateLimited, translate_article_fields
+from app.user_data import (
+    delete_preset,
+    get_preset,
+    list_bookmarked_articles,
+    list_presets,
+    save_preset,
+    set_feedback,
+    toggle_bookmark,
+    toggle_read,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,13 +88,13 @@ scheduler = AsyncIOScheduler()
 DIRECTIONS = list(DIRECTION_LABELS.keys())
 CONTENT_TYPES = list(CONTENT_TYPE_LABELS.keys())
 TECHNOLOGIES = list(TECHNOLOGY_LABELS.keys())
-# Default feed order puts interesting articles first; not exposed in the UI sort control.
 DEFAULT_SORT = "interest"
 SORT_OPTIONS = {
     "newest": "Сначала новые",
     "oldest": "Сначала старые",
     "source": "По источнику",
 }
+_CVE_QUERY = re.compile(r"^\s*(CVE-\d{4}-\d+)\s*$", re.I)
 
 WEAK_SECRETS = {"", "change-me", "dev-secret-change-on-server", "secnews"}
 
@@ -101,6 +118,22 @@ async def lifespan(_: FastAPI):
         except Exception:  # noqa: BLE001
             log.exception("Scheduled ingest failed")
 
+    async def _digest_job():
+        try:
+            db = await connect()
+            try:
+                items = await list_hot_for_digest(
+                    db,
+                    hours=24,
+                    limit=10,
+                    min_score=settings.brief_min_score,
+                )
+            finally:
+                await db.close()
+            await send_daily_digest(items)
+        except Exception:  # noqa: BLE001
+            log.exception("Daily digest failed")
+
     scheduler.add_job(
         _job,
         "interval",
@@ -110,6 +143,18 @@ async def lifespan(_: FastAPI):
         max_instances=1,
         next_run_time=datetime.now() + timedelta(seconds=3),
     )
+    if settings.telegram_digest_enabled and settings.telegram_bot_token:
+        hour = max(0, min(23, int(settings.telegram_digest_hour_utc)))
+        scheduler.add_job(
+            _digest_job,
+            "cron",
+            hour=hour,
+            minute=5,
+            id="digest",
+            replace_existing=True,
+            max_instances=1,
+        )
+        log.info("Telegram digest scheduled at %02d:05 UTC", hour)
     scheduler.start()
     log.info("Scheduler started: every %s hours", settings.fetch_interval_hours)
     yield
@@ -166,8 +211,11 @@ def _feed_query_string(
     *,
     page: int | None = None,
     q: str = "",
-    sort: str = "newest",
+    cve: str = "",
+    sort: str = DEFAULT_SORT,
     translated: str = "",
+    bookmarks: str = "",
+    hide_read: str = "",
     directions: list[str] | None = None,
     content_types: list[str] | None = None,
     technologies: list[str] | None = None,
@@ -178,10 +226,16 @@ def _feed_query_string(
         pairs.append(("page", str(page)))
     if q:
         pairs.append(("q", q))
+    if cve:
+        pairs.append(("cve", cve))
     if sort and sort != DEFAULT_SORT:
         pairs.append(("sort", sort))
     if translated:
         pairs.append(("translated", translated))
+    if bookmarks:
+        pairs.append(("bookmarks", bookmarks))
+    if hide_read:
+        pairs.append(("hide_read", hide_read))
     for d in directions or []:
         pairs.append(("direction", d))
     for t in content_types or []:
@@ -193,6 +247,34 @@ def _feed_query_string(
     return urlencode(pairs)
 
 
+def _article_export_payload(article: dict[str, Any], members: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {
+        "id": article["id"],
+        "title": article.get("title_ru") or article.get("title"),
+        "title_original": article.get("title"),
+        "summary": article.get("summary_ru") or article.get("summary"),
+        "brief_ru": article.get("brief_ru"),
+        "url": article.get("url"),
+        "source": article.get("source_name"),
+        "published_at": article.get("published_at") or article.get("fetched_at"),
+        "direction": article.get("direction"),
+        "content_type": article.get("content_type"),
+        "technologies": article.get("technologies") or [],
+        "interest_score": article.get("interest_score"),
+        "cves": extract_cves(f"{article.get('title') or ''} {article.get('summary') or ''}"),
+        "cluster": [
+            {
+                "id": m["id"],
+                "source": m.get("source_name"),
+                "title": m.get("title_ru") or m.get("title"),
+                "url": m.get("url"),
+            }
+            for m in (members or [])
+            if m["id"] != article["id"]
+        ],
+    }
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(
     request: Request,
@@ -201,9 +283,7 @@ async def login_page(
     return templates.TemplateResponse(
         request,
         "login.html",
-        {
-            "next": safe_next_url(next),
-        },
+        {"next": safe_next_url(next)},
     )
 
 
@@ -238,7 +318,10 @@ async def index(
     technology: Annotated[list[str] | None, Query()] = None,
     source: Annotated[list[str] | None, Query()] = None,
     q: Annotated[str | None, Query()] = None,
+    cve: Annotated[str | None, Query()] = None,
     translated: Annotated[str | None, Query()] = None,
+    bookmarks: Annotated[str | None, Query()] = None,
+    hide_read: Annotated[str | None, Query()] = None,
     sort: Annotated[str, Query()] = DEFAULT_SORT,
     page: Annotated[int, Query(ge=1)] = 1,
 ):
@@ -251,13 +334,21 @@ async def index(
     elif translated == "no":
         translated_only = False
 
+    q_value = q.strip() if q else ""
+    cve_value = (cve or "").strip().upper()
+    m = _CVE_QUERY.match(q_value)
+    if m and not cve_value:
+        cve_value = m.group(1).upper()
+        q_value = ""
+
     limit = 40
     offset = (page - 1) * limit
     selected_directions = direction or []
     selected_content_types = content_type or []
     selected_technologies = technology or []
     selected_sources = source or []
-    q_value = q.strip() if q else ""
+    bookmarks_only = bookmarks == "1"
+    hide_read_flag = hide_read == "1"
 
     db = await connect()
     try:
@@ -269,23 +360,41 @@ async def index(
             source_ids=_multi(source),
             hide_legislation=True,
             q=q_value or None,
+            cve=cve_value or None,
             translated_only=translated_only,
+            bookmarked_only=bookmarks_only,
+            hide_read=hide_read_flag,
             sort=sort,
             limit=limit,
             offset=offset,
         )
         total = await count_articles(db, hide_legislation=True)
         sources = await distinct_sources(db)
+        presets = await list_presets(db)
     finally:
         await db.close()
+
+    qs_kwargs = dict(
+        q=q_value,
+        cve=cve_value,
+        sort=sort,
+        translated=translated or "",
+        bookmarks="1" if bookmarks_only else "",
+        hide_read="1" if hide_read_flag else "",
+        directions=selected_directions,
+        content_types=selected_content_types,
+        technologies=selected_technologies,
+        sources=selected_sources,
+    )
 
     return templates.TemplateResponse(
         request,
         "index.html",
         {
-            "active_nav": "feed",
+            "active_nav": "bookmarks" if bookmarks_only else "feed",
             "articles": articles,
             "sources": sources,
+            "presets": presets,
             "directions": DIRECTIONS,
             "content_types": CONTENT_TYPES,
             "technologies": TECHNOLOGIES,
@@ -295,31 +404,16 @@ async def index(
             "selected_technologies": selected_technologies,
             "selected_sources": selected_sources,
             "q": q_value,
+            "cve": cve_value,
             "translated": translated or "",
+            "bookmarks": bookmarks_only,
+            "hide_read": hide_read_flag,
             "sort": sort,
             "page": page,
             "has_next": len(articles) == limit,
             "total": total,
-            "prev_qs": _feed_query_string(
-                page=page - 1 if page > 1 else None,
-                q=q_value,
-                sort=sort,
-                translated=translated or "",
-                directions=selected_directions,
-                content_types=selected_content_types,
-                technologies=selected_technologies,
-                sources=selected_sources,
-            ),
-            "next_qs": _feed_query_string(
-                page=page + 1,
-                q=q_value,
-                sort=sort,
-                translated=translated or "",
-                directions=selected_directions,
-                content_types=selected_content_types,
-                technologies=selected_technologies,
-                sources=selected_sources,
-            ),
+            "prev_qs": _feed_query_string(page=page - 1 if page > 1 else None, **qs_kwargs),
+            "next_qs": _feed_query_string(page=page + 1, **qs_kwargs),
         },
     )
 
@@ -333,6 +427,13 @@ async def article_page(
     db = await connect()
     try:
         article = await get_article(db, article_id)
+        members = []
+        if article and article.get("cluster_id"):
+            members = await list_cluster_members(db, article["cluster_id"])
+        from app.user_data import attach_states
+
+        if article:
+            await attach_states(db, [article])
     finally:
         await db.close()
     if not article:
@@ -343,8 +444,72 @@ async def article_page(
         {
             "active_nav": "feed",
             "article": article,
+            "cluster_members": [m for m in members if m["id"] != article_id],
+            "cves": extract_cves(f"{article.get('title') or ''} {article.get('summary') or ''}"),
         },
     )
+
+
+@app.get("/article/{article_id}/export.json")
+async def export_article_json(
+    article_id: int,
+    _: Annotated[str, Depends(require_user)],
+):
+    db = await connect()
+    try:
+        article = await get_article(db, article_id)
+        members = await list_cluster_members(db, article["cluster_id"]) if article and article.get("cluster_id") else []
+    finally:
+        await db.close()
+    if not article:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse(_article_export_payload(article, members))
+
+
+@app.get("/article/{article_id}/export.md")
+async def export_article_md(
+    article_id: int,
+    _: Annotated[str, Depends(require_user)],
+):
+    db = await connect()
+    try:
+        article = await get_article(db, article_id)
+        members = await list_cluster_members(db, article["cluster_id"]) if article and article.get("cluster_id") else []
+    finally:
+        await db.close()
+    if not article:
+        return PlainTextResponse("Not found", status_code=404)
+    payload = _article_export_payload(article, members)
+    lines = [
+        f"# {payload['title']}",
+        "",
+        f"- Источник: {payload['source']}",
+        f"- Дата: {payload['published_at']}",
+        f"- Score: {payload['interest_score']}",
+        f"- URL: {payload['url']}",
+    ]
+    if payload["cves"]:
+        lines.append(f"- CVE: {', '.join(payload['cves'])}")
+    if payload.get("brief_ru"):
+        lines.extend(["", "## Brief", "", payload["brief_ru"]])
+    if payload.get("summary"):
+        lines.extend(["", "## Summary", "", payload["summary"] or ""])
+    if payload["cluster"]:
+        lines.extend(["", "## Другие источники", ""])
+        for m in payload["cluster"]:
+            lines.append(f"- {m['source']}: [{m['title']}]({m['url']})")
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/export/bookmarks.json")
+async def export_bookmarks_json(_: Annotated[str, Depends(require_user)]):
+    db = await connect()
+    try:
+        ids = await list_bookmarked_articles(db)
+        articles = await get_articles_by_ids(db, ids)
+    finally:
+        await db.close()
+    return JSONResponse([_article_export_payload(a) for a in articles])
 
 
 @app.post("/article/{article_id}/translate")
@@ -385,16 +550,148 @@ async def translate_one(
             await update_translation(db, article_id, title_ru, summary_ru)
         finally:
             await db.close()
-        return redirect_with_flash(
-            f"/article/{article_id}",
-            "Перевод выполнен",
-            "ok",
-        )
+        return redirect_with_flash(f"/article/{article_id}", "Перевод выполнен", "ok")
+    return redirect_with_flash(f"/article/{article_id}", "Не удалось получить перевод", "error")
+
+
+@app.post("/article/{article_id}/bookmark")
+async def bookmark_toggle(
+    request: Request,
+    article_id: int,
+    _: Annotated[str, Depends(require_user)],
+    csrf_token: Annotated[str | None, Form()] = None,
+    next: Annotated[str, Form()] = "/",
+):
+    bad = _csrf_or_flash(request, csrf_token, safe_next_url(next))
+    if bad:
+        return bad
+    db = await connect()
+    try:
+        on = await toggle_bookmark(db, article_id)
+    finally:
+        await db.close()
     return redirect_with_flash(
-        f"/article/{article_id}",
-        "Не удалось получить перевод",
-        "error",
+        safe_next_url(next),
+        "В закладках" if on else "Убрано из закладок",
+        "ok",
     )
+
+
+@app.post("/article/{article_id}/read")
+async def read_toggle(
+    request: Request,
+    article_id: int,
+    _: Annotated[str, Depends(require_user)],
+    csrf_token: Annotated[str | None, Form()] = None,
+    next: Annotated[str, Form()] = "/",
+):
+    bad = _csrf_or_flash(request, csrf_token, safe_next_url(next))
+    if bad:
+        return bad
+    db = await connect()
+    try:
+        on = await toggle_read(db, article_id)
+    finally:
+        await db.close()
+    return redirect_with_flash(
+        safe_next_url(next),
+        "Отмечено прочитанным" if on else "Снова непрочитанное",
+        "ok",
+    )
+
+
+@app.post("/article/{article_id}/feedback")
+async def feedback_set(
+    request: Request,
+    article_id: int,
+    _: Annotated[str, Depends(require_user)],
+    value: Annotated[int, Form()],
+    csrf_token: Annotated[str | None, Form()] = None,
+    next: Annotated[str, Form()] = "/",
+):
+    bad = _csrf_or_flash(request, csrf_token, safe_next_url(next))
+    if bad:
+        return bad
+    db = await connect()
+    try:
+        new_val = await set_feedback(db, article_id, value)
+    finally:
+        await db.close()
+    msg = {1: "Полезное — поднято в ранжировании", -1: "Мимо — опущено", 0: "Оценка сброшена"}[new_val]
+    return redirect_with_flash(safe_next_url(next), msg, "ok")
+
+
+@app.post("/presets/save")
+async def presets_save(
+    request: Request,
+    _: Annotated[str, Depends(require_user)],
+    name: Annotated[str, Form()],
+    csrf_token: Annotated[str | None, Form()] = None,
+    params_json: Annotated[str, Form()] = "{}",
+):
+    bad = _csrf_or_flash(request, csrf_token, "/")
+    if bad:
+        return bad
+    try:
+        params = json.loads(params_json or "{}")
+        if not isinstance(params, dict):
+            raise ValueError("params must be object")
+    except (json.JSONDecodeError, ValueError):
+        return redirect_with_flash("/", "Некорректные параметры пресета", "error")
+    db = await connect()
+    try:
+        await save_preset(db, name, params)
+    except ValueError:
+        return redirect_with_flash("/", "Укажите имя пресета", "error")
+    finally:
+        await db.close()
+    return redirect_with_flash("/", f"Пресет «{name.strip()}» сохранён", "ok")
+
+
+@app.post("/presets/{preset_id}/delete")
+async def presets_delete(
+    request: Request,
+    preset_id: int,
+    _: Annotated[str, Depends(require_user)],
+    csrf_token: Annotated[str | None, Form()] = None,
+):
+    bad = _csrf_or_flash(request, csrf_token, "/")
+    if bad:
+        return bad
+    db = await connect()
+    try:
+        await delete_preset(db, preset_id)
+    finally:
+        await db.close()
+    return redirect_with_flash("/", "Пресет удалён", "ok")
+
+
+@app.get("/presets/{preset_id}/apply")
+async def presets_apply(
+    preset_id: int,
+    _: Annotated[str, Depends(require_user)],
+):
+    db = await connect()
+    try:
+        preset = await get_preset(db, preset_id)
+    finally:
+        await db.close()
+    if not preset:
+        return redirect_with_flash("/", "Пресет не найден", "error")
+    params = preset["params"]
+    qs = _feed_query_string(
+        q=params.get("q") or "",
+        cve=params.get("cve") or "",
+        sort=params.get("sort") or DEFAULT_SORT,
+        translated=params.get("translated") or "",
+        bookmarks=params.get("bookmarks") or "",
+        hide_read=params.get("hide_read") or "",
+        directions=params.get("direction") or [],
+        content_types=params.get("content_type") or [],
+        technologies=params.get("technology") or [],
+        sources=params.get("source") or [],
+    )
+    return RedirectResponse(url=f"/?{qs}" if qs else "/", status_code=303)
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -470,6 +767,36 @@ async def refresh(
         level = "ok"
     target = f"/dashboard?run={run_id}" if run_id else "/dashboard"
     return redirect_with_flash(target, msg, level)
+
+
+@app.post("/admin/digest-now")
+async def digest_now(
+    request: Request,
+    _: Annotated[str, Depends(require_user)],
+    csrf_token: Annotated[str | None, Form()] = None,
+):
+    bad = _csrf_or_flash(request, csrf_token, "/dashboard")
+    if bad:
+        return bad
+    settings = get_settings()
+    db = await connect()
+    try:
+        items = await list_hot_for_digest(
+            db,
+            hours=24,
+            limit=10,
+            min_score=settings.brief_min_score,
+        )
+    finally:
+        await db.close()
+    ok = await send_daily_digest(items)
+    if ok:
+        return redirect_with_flash("/dashboard", f"Дайджест отправлен ({len(items)} шт.)", "ok")
+    return redirect_with_flash(
+        "/dashboard",
+        "Не удалось отправить дайджест — проверьте TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID",
+        "error",
+    )
 
 
 @app.get("/health")

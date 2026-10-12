@@ -2,13 +2,13 @@
 {% block title %}{{ article.title_ru or article.title }} — sec-news{% endblock %}
 {% block main_class %}main-article{% endblock %}
 {% block content %}
-<article class="detail {% if interest_tier(article.interest_score) %}item--hot{% if interest_tier(article.interest_score) == 'strong' %} item--hot-strong{% endif %}{% endif %}">
+<article class="detail {% if interest_tier(article.effective_score if article.effective_score is defined else article.interest_score) %}item--hot{% if interest_tier(article.effective_score if article.effective_score is defined else article.interest_score) == 'strong' %} item--hot-strong{% endif %}{% endif %}">
   <p class="crumb"><a href="/">← К ленте</a></p>
-  {% set tier = interest_tier(article.interest_score) %}
+  {% set tier = interest_tier(article.effective_score if article.effective_score is defined else article.interest_score) %}
   {% if tier %}
   <div class="hot-flag">
     {% if tier == 'strong' %}очень интересно{% else %}интересно{% endif %}
-    <span class="hot-score">{{ '%.0f'|format(article.interest_score) }}</span>
+    <span class="hot-score">{{ '%.0f'|format(article.effective_score if article.effective_score is defined else article.interest_score) }}</span>
   </div>
   {% endif %}
   <h1>{% if article.title_ru %}{{ article.title_ru }}{% else %}{{ article.title }}{% endif %}</h1>
@@ -23,9 +23,28 @@
     <span class="badge tech">{{ t|label_technology }}</span>
     {% endfor %}
     {% if article.translated %}<span class="badge ok">RU</span>{% endif %}
+    {% for c in cves %}
+    <a class="badge warn" href="/?cve={{ c }}">{{ c }}</a>
+    {% endfor %}
   </div>
 
   <p class="meta">{{ article.source_name }} · <span class="mono">{{ article.published_at or article.fetched_at }}</span></p>
+
+  <div class="item-actions">
+    <form method="post" action="/article/{{ article.id }}/bookmark" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="/article/{{ article.id }}"><button class="btn btn-ghost" type="submit">{% if article.bookmarked %}Убрать закладку{% else %}В закладки{% endif %}</button></form>
+    <form method="post" action="/article/{{ article.id }}/read" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="/article/{{ article.id }}"><button class="btn btn-ghost" type="submit">{% if article.is_read %}Снять прочитано{% else %}Прочитано{% endif %}</button></form>
+    <form method="post" action="/article/{{ article.id }}/feedback" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="/article/{{ article.id }}"><input type="hidden" name="value" value="1"><button class="btn btn-ghost {% if article.feedback == 1 %}is-on{% endif %}" type="submit">Полезно</button></form>
+    <form method="post" action="/article/{{ article.id }}/feedback" class="js-action">{% include "partials/csrf.html" %}<input type="hidden" name="next" value="/article/{{ article.id }}"><input type="hidden" name="value" value="-1"><button class="btn btn-ghost {% if article.feedback == -1 %}is-on{% endif %}" type="submit">Мимо</button></form>
+    <a class="btn btn-ghost" href="/article/{{ article.id }}/export.md">Export MD</a>
+    <a class="btn btn-ghost" href="/article/{{ article.id }}/export.json">Export JSON</a>
+  </div>
+
+  {% if article.brief_ru %}
+  <section class="block">
+    <h2>Brief (RU)</h2>
+    <p>{{ article.brief_ru }}</p>
+  </section>
+  {% endif %}
 
   {% if article.summary_ru %}
   <section class="block">
@@ -38,6 +57,17 @@
   <section class="block">
     <h2>Summary</h2>
     <p>{{ article.summary }}</p>
+  </section>
+  {% endif %}
+
+  {% if cluster_members %}
+  <section class="block">
+    <h2>Та же история в других источниках</h2>
+    <ul class="cluster-list">
+      {% for m in cluster_members %}
+      <li><a href="/article/{{ m.id }}">{{ m.source_name }}</a> — {{ m.title_ru or m.title }}</li>
+      {% endfor %}
+    </ul>
   </section>
   {% endif %}
 
