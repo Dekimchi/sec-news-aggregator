@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}sec-news — лента{% endblock %}
+{% block title %}{% if bookmarks %}sec-news — закладки{% else %}sec-news — лента{% endif %}{% endblock %}
+{% block body_attrs %}data-filter-scope="{{ 'bookmarks' if bookmarks else 'feed' }}"{% endblock %}
 {% block main_class %}main-feed{% endblock %}
 {% block content %}
 <section class="feed">
@@ -8,11 +9,12 @@
       <div class="filter-dropdown" data-dropdown>
         <button type="button" class="btn btn-ghost" id="filters-toggle" data-dropdown-toggle aria-expanded="false" aria-controls="filters-panel">
           Поиск и фильтры
-          {% set active_filters = (q and 1 or 0) + (cve and 1 or 0) + selected_directions|length + selected_content_types|length + selected_technologies|length + selected_sources|length + (1 if translated else 0) + (1 if bookmarks else 0) + (1 if hide_read else 0) %}
+          {% set active_filters = (q and 1 or 0) + (cve and 1 or 0) + selected_directions|length + selected_content_types|length + selected_technologies|length + selected_sources|length + (1 if translated else 0) + (1 if hide_read else 0) %}
           {% if active_filters %}<span class="filter-count">{{ active_filters }}</span>{% endif %}
         </button>
         <div class="filter-popover" id="filters-panel" data-dropdown-panel hidden>
-          <form method="get" action="/" class="filter-form" id="filter-form">
+          <form method="get" action="/" class="filter-form" id="filter-form" data-filter-form>
+            {% if bookmarks %}<input type="hidden" name="bookmarks" value="1">{% endif %}
             <label class="field">
               <span>Поиск / CVE</span>
               <input type="search" name="q" value="{{ q or cve }}" placeholder="CVE-2024-1234 или XSS…">
@@ -57,12 +59,11 @@
               </select>
             </label>
 
-            <label class="check"><input type="checkbox" name="bookmarks" value="1" {% if bookmarks %}checked{% endif %}> Только закладки</label>
             <label class="check"><input type="checkbox" name="hide_read" value="1" {% if hide_read %}checked{% endif %}> Скрыть прочитанные</label>
 
             <div class="actions">
               <button type="submit" class="btn btn-accent">Применить</button>
-              <a class="ghost-link" href="/">Сбросить</a>
+              <a class="ghost-link" href="{% if bookmarks %}/?bookmarks=1{% else %}/{% endif %}" data-filter-reset>Сбросить</a>
             </div>
           </form>
 
@@ -71,7 +72,7 @@
             <div class="preset-list">
               {% for p in presets %}
               <div class="preset-row">
-                <a class="btn btn-ghost" href="/presets/{{ p.id }}/apply">{{ p.name }}</a>
+                <a class="btn btn-ghost" href="/presets/{{ p.id }}/apply?scope={{ 'bookmarks' if bookmarks else 'feed' }}">{{ p.name }}</a>
                 <form method="post" action="/presets/{{ p.id }}/delete" class="js-action">
                   {% include "partials/csrf.html" %}
                   <button type="submit" class="btn btn-ghost" title="Удалить">×</button>

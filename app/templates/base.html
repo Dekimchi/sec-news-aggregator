@@ -14,11 +14,11 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body {% block body_attrs %}{% endblock %}>
   <header class="shell-top">
     <div class="shell-top-inner">
       <div class="brand">
-        <a href="/" class="brand-link" aria-label="sec-news — на главную">
+        <a href="/" class="brand-link" data-nav="feed" aria-label="sec-news — на главную">
           <img class="brand-logo" src="/static/branding/logo-mark.png" width="36" height="36" alt="">
           <span class="brand-mark">sec-news</span>
         </a>
@@ -26,9 +26,9 @@
       </div>
 
       <nav class="tabs" aria-label="Разделы">
-        <a class="tab {% if active_nav == 'feed' %}is-active{% endif %}" href="/">Лента</a>
-        <a class="tab {% if active_nav == 'bookmarks' %}is-active{% endif %}" href="/?bookmarks=1">Закладки</a>
-        <a class="tab {% if active_nav == 'dashboard' %}is-active{% endif %}" href="/dashboard">Дашборд</a>
+        <a class="tab {% if active_nav == 'feed' %}is-active{% endif %}" href="/" data-nav="feed">Лента</a>
+        <a class="tab {% if active_nav == 'bookmarks' %}is-active{% endif %}" href="/?bookmarks=1" data-nav="bookmarks">Закладки</a>
+        <a class="tab {% if active_nav == 'dashboard' %}is-active{% endif %}" href="/dashboard" data-nav="dashboard">Дашборд</a>
       </nav>
 
       <button type="button" class="icon-btn mobile-only" id="menu-toggle" aria-expanded="false" aria-controls="top-actions" aria-label="Меню">
