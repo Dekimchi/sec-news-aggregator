@@ -1,54 +1,41 @@
 #!/usr/bin/env bash
-# Usage (on VPS as root):
-#   SITE_ADDRESS=news.example.com bash deploy/setup-proxy.sh
+# Idempotent reverse-proxy + firewall + fail2ban setup (no domain required).
+# Usage:
+#   bash deploy/setup-proxy.sh
 set -euo pipefail
 
-SITE_ADDRESS="${SITE_ADDRESS:-}"
 APP_DIR="${APP_DIR:-/opt/sec-news-aggregator}"
 
-if [ -z "$SITE_ADDRESS" ]; then
-  echo "Set SITE_ADDRESS to your domain, e.g.:"
-  echo "  SITE_ADDRESS=news.example.com bash deploy/setup-proxy.sh"
-  exit 1
-fi
-
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl ufw fail2ban
+apt-get update -qq
+apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl ufw fail2ban gpg
 
-# Caddy repo
-if [ ! -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg ]; then
+if ! command -v caddy >/dev/null 2>&1; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
     | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
     | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
-  apt-get update
+  apt-get update -qq
+  apt-get install -y -qq caddy
 fi
-apt-get install -y caddy
 
 mkdir -p /var/log/caddy
-chown caddy:caddy /var/log/caddy
+chown caddy:caddy /var/log/caddy || true
 
-# Caddyfile
-cp "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
-sed -i "s/{\$SITE_ADDRESS:example.com}/$SITE_ADDRESS/g" /etc/caddy/Caddyfile
+install -m 644 "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
+install -m 644 "$APP_DIR/deploy/fail2ban/sec-news-auth.conf" /etc/fail2ban/filter.d/sec-news-auth.conf
+install -m 644 "$APP_DIR/deploy/fail2ban/sec-news-auth.local" /etc/fail2ban/jail.d/sec-news-auth.local
 
-# fail2ban filter/jail
-cp "$APP_DIR/deploy/fail2ban/sec-news-auth.conf" /etc/fail2ban/filter.d/sec-news-auth.conf
-cp "$APP_DIR/deploy/fail2ban/sec-news-auth.local" /etc/fail2ban/jail.d/sec-news-auth.local
+# Firewall: SSH + HTTP/HTTPS
+ufw allow OpenSSH >/dev/null
+ufw allow 80/tcp >/dev/null
+ufw allow 443/tcp >/dev/null
+ufw --force enable >/dev/null
 
-# Firewall: SSH + HTTP/HTTPS only
-ufw allow OpenSSH
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw --force enable
-
-systemctl enable --now fail2ban
+systemctl enable caddy fail2ban >/dev/null
 systemctl restart fail2ban
-systemctl enable --now caddy
+caddy validate --config /etc/caddy/Caddyfile
 systemctl restart caddy
-systemctl restart sec-news
 
-echo "Proxy ready: https://$SITE_ADDRESS"
-echo "Check: curl -I https://$SITE_ADDRESS/health"
-echo "fail2ban: fail2ban-client status sec-news-auth"
+echo "Proxy configured (no domain): http://SERVER_IP/ and https://SERVER_IP/ (self-signed)"
+echo "fail2ban: $(fail2ban-client status sec-news-auth 2>/dev/null | head -n 2 || echo 'jail loading')"

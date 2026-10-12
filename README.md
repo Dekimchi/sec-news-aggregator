@@ -71,19 +71,19 @@ python run.py
 
 ## Reverse proxy + защита от брута
 
-На сервере (нужен домен с A-записью на IP VPS):
+Раскатывается **через CD** после успешного CI (скрипт `deploy/setup-proxy.sh` на VPS).
 
-```bash
-cd /opt/sec-news-aggregator
-git pull
-SITE_ADDRESS=news.example.com bash deploy/setup-proxy.sh
-```
+Без домена:
+- `http://VPS_IP/` — обычный HTTP
+- `https://VPS_IP/` — HTTPS с self-signed сертификатом (браузер покажет предупреждение)
 
-Что ставится:
-- **Caddy** — HTTPS (Let's Encrypt) + reverse proxy на `127.0.0.1:8000`
+Что ставится автоматически:
+- **Caddy** — reverse proxy на `127.0.0.1:8000`
 - **UFW** — только 22/80/443
 - **fail2ban** — бан IP после серии `AUTH_FAIL` в логах `sec-news`
 - В приложении — лимит логина: **5 попыток / 10 минут** с одного IP
+
+Когда появится домен — можно будет переключить Caddy на Let's Encrypt.
 
 ## Деплой на VPS (вручную)
 
