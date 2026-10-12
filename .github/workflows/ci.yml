@@ -33,4 +33,4 @@ jobs:
         run: python -c "from app.main import app; print(app.title)"
 
       - name: Run tests
-        run: pytest -q
+        run: PYTHONPATH=. pytest -q
