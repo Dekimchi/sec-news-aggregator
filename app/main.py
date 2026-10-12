@@ -59,6 +59,13 @@ from app.security import (
     set_csrf_cookie,
     validate_csrf,
 )
+from app.timefmt import (
+    format_vladivostok,
+    hours_phrase,
+    hours_word,
+    utc_hour_to_vlad,
+    vlad_hour_to_utc,
+)
 from app.translate import TranslateRateLimited, translate_article_fields
 from app.user_data import (
     delete_preset,
@@ -79,12 +86,17 @@ log = logging.getLogger("sec-news")
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
 templates.env.filters["label_direction"] = label_direction
 templates.env.filters["label_content_type"] = label_content_type
 templates.env.filters["label_technology"] = label_technology
+templates.env.filters["format_vlad"] = format_vladivostok
+templates.env.filters["hours_word"] = hours_word
+templates.env.filters["hours_phrase"] = hours_phrase
 templates.env.globals["interest_tier"] = interest_tier
 templates.env.globals["HOT_THRESHOLD"] = HOT_THRESHOLD
 templates.env.globals["HOT_STRONG_THRESHOLD"] = HOT_STRONG_THRESHOLD
+templates.env.globals["utc_hour_to_vlad"] = utc_hour_to_vlad
 scheduler = AsyncIOScheduler()
 
 DIRECTIONS = list(DIRECTION_LABELS.keys())
@@ -187,31 +199,34 @@ def _scheduler_status(schedule: dict[str, Any] | None = None) -> dict[str, Any]:
             nxt = job.next_run_time
             jobs[job.id] = {
                 "next_run": nxt.isoformat() if nxt else None,
-                "next_run_display": nxt.strftime("%Y-%m-%d %H:%M UTC") if nxt else "—",
+                "next_run_display": format_vladivostok(nxt) if nxt else "—",
             }
     sched = schedule or {}
     hour = int(sched.get("digest_hour_utc", get_settings().telegram_digest_hour_utc))
     digest_on = bool(sched.get("digest_active"))
     if not sched:
-        # Fallback when called without preload (should be rare).
         base = get_settings()
         digest_on = bool(base.telegram_digest_enabled and base.telegram_bot_token)
         hour = int(base.telegram_digest_hour_utc)
+    hour_vlad = utc_hour_to_vlad(hour)
+    fetch_h = int(sched.get("fetch_interval_hours", get_settings().fetch_interval_hours))
     return {
-        "fetch_interval_hours": int(
-            sched.get("fetch_interval_hours", get_settings().fetch_interval_hours)
-        ),
+        "fetch_interval_hours": fetch_h,
+        "fetch_interval_label": hours_phrase(fetch_h),
         "digest_enabled": bool(sched.get("digest_enabled", digest_on)),
         "digest_configured": bool(sched.get("digest_configured", True)),
         "digest_active": digest_on,
         "digest_hour_utc": hour,
-        "digest_label": f"ежедневно в {hour:02d}:05 UTC" if digest_on else "выключен",
+        "digest_hour_vlad": hour_vlad,
+        "digest_label": (
+            f"ежедневно в {hour_vlad:02d}:05 VLAT" if digest_on else "выключен"
+        ),
         "ingest_next": (jobs.get("ingest") or {}).get("next_run_display", "—"),
         "digest_next": (jobs.get("digest") or {}).get("next_run_display", "—")
         if digest_on
         else "—",
-        "os_update_label": "ежедневно ~04:00 UTC (systemd)",
-        "geoip_label": "понедельник ~03:30 UTC (systemd)",
+        "os_update_label": "ежедневно ~14:00 VLAT (systemd)",
+        "geoip_label": "понедельник ~13:30 VLAT (systemd)",
     }
 
 
@@ -819,22 +834,23 @@ async def refresh(
     request: Request,
     _: Annotated[str, Depends(require_user)],
     csrf_token: Annotated[str | None, Form()] = None,
+    next: Annotated[str, Form()] = "/",
 ):
-    bad = _csrf_or_flash(request, csrf_token, "/dashboard")
+    target = safe_next_url(next, default="/")
+    bad = _csrf_or_flash(request, csrf_token, target)
     if bad:
         return bad
     try:
         stats = await ingest_once(allow_wait=True, trigger="manual")
     except IngestBusy:
         return redirect_with_flash(
-            "/dashboard",
-            "Сбор новостей уже выполняется — откройте дашборд чуть позже",
+            target,
+            "Сбор новостей уже выполняется — подождите немного",
             "info",
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("Manual refresh failed")
-        return redirect_with_flash("/dashboard", f"Ошибка обновления: {exc}", "error")
-    run_id = stats.get("run_id")
+        return redirect_with_flash(target, f"Ошибка обновления: {exc}", "error")
     failed = stats.get("failed_sources") or []
     msg = (
         f"Обновление завершено: новых {stats['inserted']}, "
@@ -845,7 +861,6 @@ async def refresh(
         level = "info"
     else:
         level = "ok"
-    target = f"/dashboard?run={run_id}" if run_id else "/dashboard"
     return redirect_with_flash(target, msg, level)
 
 
@@ -855,13 +870,21 @@ async def schedule_update(
     _: Annotated[str, Depends(require_user)],
     csrf_token: Annotated[str | None, Form()] = None,
     fetch_interval_hours: Annotated[str, Form()] = "4",
-    digest_hour_utc: Annotated[str, Form()] = "6",
+    digest_hour_vlad: Annotated[str, Form()] = "16",
     digest_enabled: Annotated[str | None, Form()] = None,
 ):
     bad = _csrf_or_flash(request, csrf_token, "/dashboard")
     if bad:
         return bad
     enabled = digest_enabled in {"1", "on", "true", "yes"}
+    try:
+        local_hour = int(digest_hour_vlad)
+        if local_hour < 0 or local_hour > 23:
+            raise ValueError("Час дайджеста: от 0 до 23 (Владивосток)")
+        hour_utc = vlad_hour_to_utc(local_hour)
+    except ValueError as exc:
+        return redirect_with_flash("/dashboard", str(exc), "error")
+
     db = await connect()
     try:
         try:
@@ -869,7 +892,7 @@ async def schedule_update(
                 db,
                 fetch_interval_hours=fetch_interval_hours,
                 digest_enabled=enabled,
-                digest_hour_utc=digest_hour_utc,
+                digest_hour_utc=hour_utc,
             )
         except ValueError as exc:
             return redirect_with_flash("/dashboard", str(exc), "error")
@@ -877,16 +900,15 @@ async def schedule_update(
         await db.close()
 
     _apply_schedule(schedule, run_ingest_soon=False)
-    msg = (
-        f"Расписание сохранено: сбор каждые {schedule['fetch_interval_hours']} ч"
-    )
+    msg = f"Расписание сохранено: сбор каждые {hours_phrase(schedule['fetch_interval_hours'])}"
     if schedule.get("digest_active"):
-        msg += f", дайджест в {int(schedule['digest_hour_utc']):02d}:05 UTC"
+        hv = utc_hour_to_vlad(int(schedule["digest_hour_utc"]))
+        msg += f", дайджест в {hv:02d}:05 VLAT"
     elif not schedule.get("digest_configured"):
         msg += "; дайджест недоступен — нет TELEGRAM_* в .env"
     else:
         msg += ", дайджест выключен"
-    return redirect_with_flash("/dashboard", msg, "ok")
+    return redirect_with_flash("/dashboard?open=schedule", msg, "ok")
 
 
 @app.post("/admin/digest-now")

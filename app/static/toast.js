@@ -39,14 +39,18 @@
     }
 
     document.querySelectorAll("form.js-action").forEach(function (form) {
+      if (form.hasAttribute("data-refresh-progress")) return;
       form.addEventListener("submit", function () {
         var btn = form.querySelector('button[type="submit"], button:not([type])');
         if (btn) {
           btn.disabled = true;
-          if (!btn.dataset.originalText) {
-            btn.dataset.originalText = btn.textContent;
+          var loading = form.dataset.loadingText;
+          if (loading) {
+            if (!btn.dataset.originalText) {
+              btn.dataset.originalText = btn.textContent;
+            }
+            btn.textContent = loading;
           }
-          btn.textContent = form.dataset.loadingText || "Выполняется…";
         }
         var pending = form.dataset.pendingToast;
         if (pending) {

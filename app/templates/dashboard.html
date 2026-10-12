@@ -4,129 +4,16 @@
 {% block content %}
 <section class="dash-hero">
   <div>
-    <h1>Дашборд обновлений</h1>
-    <p class="muted">Статус сбора ленты и история прогонов</p>
+    <h1>Настройки</h1>
+    <p class="muted">Сбор, дайджест, источники и диагностика</p>
   </div>
   <div class="dash-actions">
-    <form method="post" action="/admin/refresh" class="js-action"
-          data-pending-toast="Обновление ленты… это может занять минуту"
-          data-loading-text="Обновление…">
-      {% include "partials/csrf.html" %}
-      <button type="submit" class="btn btn-accent">Запустить сбор</button>
-    </form>
     <form method="post" action="/admin/digest-now" class="js-action" data-loading-text="Отправка…">
       {% include "partials/csrf.html" %}
-      <button type="submit" class="btn btn-ghost">Дайджест в Telegram</button>
+      <button type="submit" class="btn btn-ghost">Дайджест сейчас</button>
     </form>
     <a class="btn btn-ghost" href="/export/bookmarks.json">Экспорт закладок</a>
   </div>
-</section>
-
-<section class="schedule-panel">
-  <div class="schedule-head">
-    <div>
-      <p class="schedule-eyebrow">Timers</p>
-      <h2>Расписание</h2>
-      <p class="muted schedule-lead">Сбор и дайджест настраиваются здесь; системные таймеры — на VPS.</p>
-    </div>
-    {% if schedule.digest_active %}
-    <span class="schedule-live"><span class="schedule-live-dot"></span>дайджест активен</span>
-    {% elif schedule.digest_enabled %}
-    <span class="schedule-live schedule-live--warn"><span class="schedule-live-dot"></span>нужен Telegram в .env</span>
-    {% else %}
-    <span class="schedule-live schedule-live--off"><span class="schedule-live-dot"></span>дайджест выключен</span>
-    {% endif %}
-  </div>
-
-  <form method="post" action="/admin/schedule" class="schedule-form js-action" data-loading-text="Сохранение…">
-    {% include "partials/csrf.html" %}
-
-    <div class="schedule-cards">
-      <article class="sched-card sched-card--ingest">
-        <header class="sched-card-top">
-          <span class="sched-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M4 12h3l2-5 4 10 2-5h5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </span>
-          <div>
-            <h3>Сбор статей</h3>
-            <p class="muted">RSS → фильтры → перевод</p>
-          </div>
-        </header>
-        <label class="sched-control">
-          <span class="sched-control-label">Интервал</span>
-          <span class="sched-input-wrap">
-            <span class="sched-prefix">каждые</span>
-            <input class="sched-input mono" type="number" name="fetch_interval_hours"
-                   min="1" max="48" step="1" value="{{ schedule.fetch_interval_hours }}" required>
-            <span class="sched-suffix">часов</span>
-          </span>
-        </label>
-        <div class="sched-meta">
-          <span class="sched-chip">след. запуск</span>
-          <strong class="mono">{{ schedule.ingest_next }}</strong>
-        </div>
-      </article>
-
-      <article class="sched-card sched-card--digest {% if schedule.digest_active %}is-on{% endif %}">
-        <header class="sched-card-top">
-          <span class="sched-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M5 6h14v10H8l-3 3V6z" stroke-linejoin="round"/>
-              <path d="M8 10h8M8 13h5" stroke-linecap="round"/>
-            </svg>
-          </span>
-          <div>
-            <h3>Дайджест Telegram</h3>
-            <p class="muted">горячие статьи за сутки</p>
-          </div>
-          <label class="sched-switch" title="Включить дайджест">
-            <input type="checkbox" name="digest_enabled" value="1"
-                   {% if schedule.digest_enabled %}checked{% endif %}>
-            <span class="sched-switch-ui" aria-hidden="true"></span>
-            <span class="visually-hidden">Включён</span>
-          </label>
-        </header>
-        <label class="sched-control">
-          <span class="sched-control-label">Время (UTC)</span>
-          <span class="sched-input-wrap">
-            <span class="sched-prefix">в</span>
-            <input class="sched-input mono" type="number" name="digest_hour_utc"
-                   min="0" max="23" step="1" value="{{ schedule.digest_hour_utc }}" required>
-            <span class="sched-suffix">:05</span>
-          </span>
-        </label>
-        <div class="sched-meta">
-          <span class="sched-chip">след. запуск</span>
-          <strong class="mono">{{ schedule.digest_next }}</strong>
-        </div>
-      </article>
-    </div>
-
-    <div class="schedule-system">
-      <div class="sched-sys">
-        <span class="sched-sys-label">Пакеты ОС</span>
-        <strong>{{ schedule.os_update_label }}</strong>
-        <span class="muted mono">systemd · unattended-upgrade</span>
-      </div>
-      <div class="sched-sys">
-        <span class="sched-sys-label">GeoIP (РФ)</span>
-        <strong>{{ schedule.geoip_label }}</strong>
-        <span class="muted mono">timer sec-news-geoip</span>
-      </div>
-    </div>
-
-    {% if not schedule.digest_configured %}
-    <p class="schedule-hint schedule-hint--warn">Дайджест не отправится, пока в <span class="mono">.env</span> нет <span class="mono">TELEGRAM_BOT_TOKEN</span> и <span class="mono">TELEGRAM_CHAT_ID</span>.</p>
-    {% else %}
-    <p class="schedule-hint">Час в UTC (6 ≈ 09:05 МСК). Сохранение применяется сразу, без перезапуска сервиса.</p>
-    {% endif %}
-
-    <div class="schedule-actions">
-      <button type="submit" class="btn btn-accent">Сохранить расписание</button>
-    </div>
-  </form>
 </section>
 
 <section class="status-strip">
@@ -134,7 +21,7 @@
   <div class="status-cell">
     <span class="status-label">Последний сбор</span>
     {% if last %}
-    <strong class="status-value mono" title="{{ last.finished_at }}">{{ last.finished_at|replace('T', ' ')|truncate(16, True, '') }}</strong>
+    <strong class="status-value mono" title="{{ last.finished_at }}">{{ last.finished_at|format_vlad(with_tz=false) }}</strong>
     <span class="badge {% if last.status == 'ok' %}ok{% else %}warn{% endif %}">
       {% if last.status == 'ok' %}успех{% elif last.status == 'partial' %}частично{% else %}ошибка{% endif %}
     </span>
@@ -160,113 +47,219 @@
   </div>
 </section>
 
-{% if stats.source_health %}
-<section class="source-health">
-  <h2>Статус источников</h2>
-  <div class="source-health-grid">
-    {% for s in stats.source_health %}
-    <div class="source-pill status-{{ s.status }}">
-      <strong>{{ s.name }}</strong>
-      <span class="mono">{{ s.status }} · fail {{ s.fail_count }} · {{ s.articles }} ст.</span>
-      {% if s.last_seen %}<span class="muted mono" title="{{ s.last_seen }}">{{ s.last_seen|replace('T', ' ')|truncate(16, True, '') }}</span>{% endif %}
+<details class="fold" {% if request.query_params.get('open') == 'schedule' %}open{% endif %}>
+  <summary class="fold-summary">
+    <span>
+      <strong>Расписание</strong>
+      <span class="muted fold-preview mono">сбор · {{ schedule.fetch_interval_label }} · дайджест {{ schedule.digest_label }}</span>
+    </span>
+    <span class="fold-chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="fold-body">
+    <div class="schedule-panel schedule-panel--nested">
+      <div class="schedule-head">
+        <p class="muted schedule-lead">Сбор и дайджест настраиваются здесь; системные таймеры — на VPS.</p>
+        {% if schedule.digest_active %}
+        <span class="schedule-live"><span class="schedule-live-dot"></span>дайджест активен</span>
+        {% elif schedule.digest_enabled %}
+        <span class="schedule-live schedule-live--warn"><span class="schedule-live-dot"></span>нужен Telegram в .env</span>
+        {% else %}
+        <span class="schedule-live schedule-live--off"><span class="schedule-live-dot"></span>дайджест выключен</span>
+        {% endif %}
+      </div>
+
+      <form method="post" action="/admin/schedule" class="schedule-form js-action" data-loading-text="Сохранение…">
+        {% include "partials/csrf.html" %}
+        <div class="schedule-cards">
+          <article class="sched-card sched-card--ingest">
+            <header class="sched-card-top">
+              <span class="sched-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M4 12h3l2-5 4 10 2-5h5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <div>
+                <h3>Сбор статей</h3>
+                <p class="muted">RSS → фильтры → перевод</p>
+              </div>
+            </header>
+            <label class="sched-control">
+              <span class="sched-control-label">Интервал</span>
+              <span class="sched-input-wrap">
+                <span class="sched-prefix">каждые</span>
+                <input class="sched-input mono" type="number" name="fetch_interval_hours" id="fetch-interval-input"
+                       min="1" max="48" step="1" value="{{ schedule.fetch_interval_hours }}" required
+                       data-hours-suffix="#fetch-hours-suffix">
+                <span class="sched-suffix" id="fetch-hours-suffix">{{ schedule.fetch_interval_hours|hours_word }}</span>
+              </span>
+            </label>
+            <div class="sched-meta">
+              <span class="sched-chip">след. запуск</span>
+              <strong class="mono">{{ schedule.ingest_next }}</strong>
+            </div>
+          </article>
+
+          <article class="sched-card sched-card--digest {% if schedule.digest_active %}is-on{% endif %}">
+            <header class="sched-card-top">
+              <span class="sched-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M5 6h14v10H8l-3 3V6z" stroke-linejoin="round"/>
+                  <path d="M8 10h8M8 13h5" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <div>
+                <h3>Дайджест Telegram</h3>
+                <p class="muted">горячие статьи за сутки</p>
+              </div>
+              <label class="sched-switch" title="Включить дайджест">
+                <input type="checkbox" name="digest_enabled" value="1"
+                       {% if schedule.digest_enabled %}checked{% endif %}>
+                <span class="sched-switch-ui" aria-hidden="true"></span>
+                <span class="visually-hidden">Включён</span>
+              </label>
+            </header>
+            <label class="sched-control">
+              <span class="sched-control-label">Время (Владивосток)</span>
+              <span class="sched-input-wrap">
+                <span class="sched-prefix">в</span>
+                <input class="sched-input mono" type="number" name="digest_hour_vlad"
+                       min="0" max="23" step="1" value="{{ schedule.digest_hour_vlad }}" required>
+                <span class="sched-suffix">:05 VLAT</span>
+              </span>
+            </label>
+            <div class="sched-meta">
+              <span class="sched-chip">след. запуск</span>
+              <strong class="mono">{{ schedule.digest_next }}</strong>
+            </div>
+          </article>
+        </div>
+
+        <div class="schedule-system">
+          <div class="sched-sys">
+            <span class="sched-sys-label">Пакеты ОС</span>
+            <strong>{{ schedule.os_update_label }}</strong>
+            <span class="muted mono">systemd · unattended-upgrade</span>
+          </div>
+          <div class="sched-sys">
+            <span class="sched-sys-label">GeoIP (РФ)</span>
+            <strong>{{ schedule.geoip_label }}</strong>
+            <span class="muted mono">timer sec-news-geoip</span>
+          </div>
+        </div>
+
+        {% if not schedule.digest_configured %}
+        <p class="schedule-hint schedule-hint--warn">Дайджест не отправится, пока в <span class="mono">.env</span> нет <span class="mono">TELEGRAM_BOT_TOKEN</span> и <span class="mono">TELEGRAM_CHAT_ID</span>.</p>
+        {% else %}
+        <p class="schedule-hint">Время дайджеста — часовой пояс Владивостока (VLAT, UTC+10). Сохранение применяется сразу.</p>
+        {% endif %}
+
+        <div class="schedule-actions">
+          <button type="submit" class="btn btn-accent">Сохранить расписание</button>
+        </div>
+      </form>
     </div>
-    {% endfor %}
   </div>
-</section>
+</details>
+
+{% if stats.source_health %}
+<details class="fold">
+  <summary class="fold-summary">
+    <span>
+      <strong>Источники</strong>
+      <span class="muted fold-preview">{{ stats.source_health|length }} шт. · компактный статус</span>
+    </span>
+    <span class="fold-chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="fold-body">
+    <div class="source-compact">
+      {% for s in stats.source_health %}
+      <div class="source-line status-{{ s.status }}">
+        <span class="source-dot" aria-hidden="true"></span>
+        <strong class="source-name">{{ s.name }}</strong>
+        <span class="mono source-stat">{{ s.status }}</span>
+        <span class="muted mono">{{ s.articles }}</span>
+        {% if s.last_seen %}<span class="muted mono source-seen">{{ s.last_seen|format_vlad(with_tz=false) }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</details>
 {% endif %}
 
 {% if stats.by_type %}
-<section class="type-bars" aria-label="Разбивка по типам">
-  {% set max_c = stats.by_type|map(attribute='count')|max %}
-  {% for row in stats.by_type %}
-  <div class="type-bar-row">
-    <span>{{ row.content_type|label_content_type }}</span>
-    <div class="type-bar-track">
-      <div class="type-bar-fill" style="--w: {{ (row.count / max_c * 100) if max_c else 0 }}%"></div>
-    </div>
-    <span class="mono">{{ row.count }}</span>
-  </div>
-  {% endfor %}
-</section>
-{% endif %}
-
-{% if last and last.failed_sources %}
-<section class="fail-banner">
-  <h2>Недоступные источники (последний прогон)</h2>
-  <ul>
-    {% for s in last.failed_sources %}
-    <li><code>{{ s }}</code></li>
-    {% endfor %}
-  </ul>
-</section>
-{% endif %}
-
-<section class="updates-layout">
-  <aside class="updates-list">
-    <h2>История</h2>
-    <p class="muted">Ручной и плановый сбор</p>
-    {% for r in runs %}
-    <a class="run-item {% if selected and r.id == selected.id %}is-active{% endif %}"
-       href="/dashboard?run={{ r.id }}">
-      <div class="run-item-top">
-        <span class="badge {% if r.status == 'ok' %}ok{% else %}warn{% endif %}">
-          {% if r.status == 'ok' %}успех{% elif r.status == 'partial' %}частично{% else %}ошибка{% endif %}
-        </span>
-        <span class="muted">{{ r.trigger }}</span>
+<details class="fold">
+  <summary class="fold-summary">
+    <span>
+      <strong>Типы контента</strong>
+      <span class="muted fold-preview">разбивка базы</span>
+    </span>
+    <span class="fold-chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="fold-body">
+    <section class="type-bars" aria-label="Разбивка по типам">
+      {% set max_c = stats.by_type|map(attribute='count')|max %}
+      {% for row in stats.by_type %}
+      <div class="type-bar-row">
+        <span>{{ row.content_type|label_content_type }}</span>
+        <div class="type-bar-track">
+          <div class="type-bar-fill" style="--w: {{ (row.count / max_c * 100) if max_c else 0 }}%"></div>
+        </div>
+        <span class="mono">{{ row.count }}</span>
       </div>
-      <div class="run-item-time mono">{{ r.finished_at }}</div>
-      <div class="run-item-stats">+{{ r.inserted }} новых · {{ r.translated }} пер. · {{ r.errors }} ош.</div>
-    </a>
-    {% else %}
-    <p class="empty">Пока нет записей. Запустите сбор.</p>
-    {% endfor %}
-  </aside>
-
-  <section class="updates-detail">
-    {% if selected %}
-    <h2>Обновление #{{ selected.id }}</h2>
-    <p class="meta">
-      <span class="mono">{{ selected.finished_at }}</span>
-      · {% if selected.trigger == 'manual' %}вручную{% else %}по расписанию{% endif %}
-      ·
-      {% if selected.status == 'ok' %}успех
-      {% elif selected.status == 'partial' %}частично
-      {% else %}ошибка{% endif %}
-    </p>
-
-    <dl class="stats-grid">
-      <div><dt>Источников</dt><dd>{{ selected.sources }}</dd></div>
-      <div><dt>Прочитано</dt><dd>{{ selected.fetched }}</dd></div>
-      <div><dt>Новых</dt><dd>{{ selected.inserted }}</dd></div>
-      <div><dt>Переведено</dt><dd>{{ selected.translated }}</dd></div>
-      <div><dt>Старше недели</dt><dd>{{ selected.skipped_old }}</dd></div>
-      <div><dt>Законодательство</dt><dd>{{ selected.skipped_legislation }}</dd></div>
-      <div><dt>Удалено</dt><dd>{{ selected.purged }}</dd></div>
-      <div><dt>Ошибок</dt><dd>{{ selected.errors }}</dd></div>
-    </dl>
-
-    {% if selected.failed_sources %}
-    <section class="block">
-      <h3>Недоступные источники</h3>
-      <ul>
-        {% for s in selected.failed_sources %}
-        <li><code>{{ s }}</code></li>
-        {% endfor %}
-      </ul>
+      {% endfor %}
     </section>
-    {% endif %}
+  </div>
+</details>
+{% endif %}
 
-    {% if selected.error_message %}
-    <section class="block">
-      <h3>Сообщение об ошибке</h3>
-      <p class="error">{{ selected.error_message }}</p>
-    </section>
-    {% endif %}
-
-    <p class="muted mono">Начало: {{ selected.started_at }}</p>
-    {% else %}
-    <p class="empty">Выберите обновление слева или запустите сбор.</p>
-    {% endif %}
-  </section>
-</section>
+<details class="fold" {% if highlight %}open{% endif %}>
+  <summary class="fold-summary">
+    <span>
+      <strong>История сборов</strong>
+      <span class="muted fold-preview">{% if runs %}{{ runs|length }} записей{% else %}пусто{% endif %}</span>
+    </span>
+    <span class="fold-chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="fold-body">
+    <div class="history-minimal">
+      {% for r in runs %}
+      <details class="hist-item {% if selected and r.id == selected.id %}is-open{% endif %}" {% if selected and r.id == selected.id %}open{% endif %}>
+        <summary class="hist-summary">
+          <span class="badge {% if r.status == 'ok' %}ok{% else %}warn{% endif %}">
+            {% if r.status == 'ok' %}ok{% elif r.status == 'partial' %}part{% else %}err{% endif %}
+          </span>
+          <span class="mono hist-time">{{ r.finished_at|format_vlad(with_tz=false) }}</span>
+          <span class="muted hist-trig">{% if r.trigger == 'manual' %}ручной{% else %}план{% endif %}</span>
+          <span class="mono hist-stats">+{{ r.inserted }} · {{ r.translated }} пер. · {{ r.errors }} ош.</span>
+        </summary>
+        <div class="hist-detail">
+          <p class="meta">
+            #{{ r.id }} · {{ r.finished_at|format_vlad }} ·
+            {% if r.status == 'ok' %}успех{% elif r.status == 'partial' %}частично{% else %}ошибка{% endif %}
+          </p>
+          <dl class="stats-grid stats-grid--compact">
+            <div><dt>Источников</dt><dd>{{ r.sources }}</dd></div>
+            <div><dt>Прочитано</dt><dd>{{ r.fetched }}</dd></div>
+            <div><dt>Новых</dt><dd>{{ r.inserted }}</dd></div>
+            <div><dt>Переведено</dt><dd>{{ r.translated }}</dd></div>
+            <div><dt>Старше недели</dt><dd>{{ r.skipped_old }}</dd></div>
+            <div><dt>Legislation</dt><dd>{{ r.skipped_legislation }}</dd></div>
+            <div><dt>Удалено</dt><dd>{{ r.purged }}</dd></div>
+            <div><dt>Ошибок</dt><dd>{{ r.errors }}</dd></div>
+          </dl>
+          {% if r.failed_sources %}
+          <p class="muted">Недоступны: {% for s in r.failed_sources %}<code>{{ s }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+          {% endif %}
+          {% if r.error_message %}
+          <p class="error">{{ r.error_message }}</p>
+          {% endif %}
+          <p class="muted mono">Старт: {{ r.started_at|format_vlad }}</p>
+        </div>
+      </details>
+      {% else %}
+      <p class="empty">Пока нет записей. Обновите ленту кнопкой ↻.</p>
+      {% endfor %}
+    </div>
+  </div>
+</details>
 {% endblock %}

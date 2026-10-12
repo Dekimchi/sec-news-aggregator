@@ -11,6 +11,15 @@
     return Array.prototype.slice.call((root || document).querySelectorAll(sel));
   }
 
+  function hoursWord(n) {
+    var value = Math.abs(parseInt(n, 10) || 0);
+    var n10 = value % 10;
+    var n100 = value % 100;
+    if (n10 === 1 && n100 !== 11) return "час";
+    if (n10 >= 2 && n10 <= 4 && !(n100 >= 12 && n100 <= 14)) return "часа";
+    return "часов";
+  }
+
   function currentScope() {
     var body = document.body;
     var scope = body && body.getAttribute("data-filter-scope");
@@ -50,7 +59,7 @@
     try {
       sessionStorage.setItem(FILTER_KEYS[scope], qsValue);
     } catch (e) {
-      /* ignore quota / private mode */
+      /* ignore */
     }
   }
 
@@ -108,51 +117,47 @@
     }
   }
 
-  function setupMenu() {
-    var toggle = qs("#menu-toggle");
-    var actions = qs("#top-actions");
-    if (!toggle || !actions) return;
-    toggle.addEventListener("click", function () {
-      var open = actions.classList.toggle("is-open");
-      toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      toggle.classList.toggle("is-open", open);
-    });
-  }
+  function setupDropdowns() {
+    var roots = qsa("[data-dropdown]");
+    if (!roots.length) return;
 
-  function setupDropdown() {
-    var root = qs("[data-dropdown]");
-    if (!root) return;
-    var toggle = qs("[data-dropdown-toggle]", root);
-    var panel = qs("[data-dropdown-panel]", root);
-    if (!toggle || !panel) return;
-
-    function open() {
-      panel.hidden = false;
-      root.classList.add("is-open");
-      toggle.setAttribute("aria-expanded", "true");
+    function closeAll(except) {
+      roots.forEach(function (root) {
+        if (except && root === except) return;
+        var toggle = qs("[data-dropdown-toggle]", root);
+        var panel = qs("[data-dropdown-panel]", root);
+        if (!toggle || !panel) return;
+        panel.hidden = true;
+        root.classList.remove("is-open");
+        toggle.setAttribute("aria-expanded", "false");
+      });
     }
 
-    function close() {
-      panel.hidden = true;
-      root.classList.remove("is-open");
-      toggle.setAttribute("aria-expanded", "false");
-    }
+    roots.forEach(function (root) {
+      var toggle = qs("[data-dropdown-toggle]", root);
+      var panel = qs("[data-dropdown-panel]", root);
+      if (!toggle || !panel) return;
 
-    function toggleOpen() {
-      if (panel.hidden) open();
-      else close();
-    }
+      toggle.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var willOpen = panel.hidden;
+        closeAll();
+        if (willOpen) {
+          panel.hidden = false;
+          root.classList.add("is-open");
+          toggle.setAttribute("aria-expanded", "true");
+        }
+      });
+      panel.addEventListener("click", function (e) {
+        e.stopPropagation();
+      });
+    });
 
-    toggle.addEventListener("click", function (e) {
-      e.stopPropagation();
-      toggleOpen();
+    document.addEventListener("click", function () {
+      closeAll();
     });
-    panel.addEventListener("click", function (e) {
-      e.stopPropagation();
-    });
-    document.addEventListener("click", close);
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") closeAll();
     });
   }
 
@@ -189,11 +194,66 @@
     });
   }
 
+  function setupHoursPlural() {
+    qsa("[data-hours-suffix]").forEach(function (input) {
+      var target = qs(input.getAttribute("data-hours-suffix"));
+      if (!target) return;
+      function sync() {
+        target.textContent = hoursWord(input.value);
+      }
+      input.addEventListener("input", sync);
+      input.addEventListener("change", sync);
+      sync();
+    });
+  }
+
+  function setupRefreshProgress() {
+    var form = qs("form[data-refresh-progress]");
+    var bar = qs("#refresh-progress");
+    if (!form || !bar) return;
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var btn = qs(".refresh-btn", form);
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add("is-busy");
+      }
+      bar.hidden = false;
+      bar.setAttribute("aria-hidden", "false");
+      if (window.secNewsToast && form.dataset.pendingToast) {
+        window.secNewsToast(form.dataset.pendingToast, "info");
+      }
+
+      var data = new FormData(form);
+      fetch(form.action, {
+        method: "POST",
+        body: data,
+        credentials: "same-origin",
+        redirect: "follow",
+      })
+        .then(function (resp) {
+          window.location.href = resp.url || form.querySelector('[name="next"]').value || "/";
+        })
+        .catch(function () {
+          bar.hidden = true;
+          if (btn) {
+            btn.disabled = false;
+            btn.classList.remove("is-busy");
+          }
+          if (window.secNewsToast) {
+            window.secNewsToast("Не удалось обновить ленту", "error");
+          }
+        });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
-    setupMenu();
-    setupDropdown();
+    setupDropdowns();
     setupAutoSubmit();
     setupPresetSave();
     setupFilterScopes();
+    setupHoursPlural();
+    setupRefreshProgress();
   });
 })();
