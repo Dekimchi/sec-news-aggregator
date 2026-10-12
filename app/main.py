@@ -61,6 +61,7 @@ from app.security import (
 )
 from app.timefmt import (
     format_vladivostok,
+    group_articles_by_fetch_day,
     hours_phrase,
     hours_word,
     utc_hour_to_vlad,
@@ -477,12 +478,15 @@ async def index(
         sources=selected_sources,
     )
 
+    feed_groups = group_articles_by_fetch_day(articles)
+
     return templates.TemplateResponse(
         request,
         "index.html",
         {
             "active_nav": "bookmarks" if bookmarks_only else "feed",
             "articles": articles,
+            "feed_groups": feed_groups,
             "sources": sources,
             "presets": presets,
             "directions": DIRECTIONS,
