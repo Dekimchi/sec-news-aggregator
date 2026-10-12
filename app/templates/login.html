@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Вход — sec-news</title>
+  <link rel="icon" href="/static/branding/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" href="/static/branding/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/static/branding/apple-touch-icon.png">
+  <meta name="theme-color" content="#0c1210">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -11,7 +15,10 @@
 </head>
 <body class="login-body">
   <main class="login-card">
-    <p class="brand-mark">sec-news</p>
+    <div class="login-brand">
+      <img class="brand-logo brand-logo-lg" src="/static/branding/logo-mark.png" width="56" height="56" alt="">
+      <p class="brand-mark">sec-news</p>
+    </div>
     <h1>Вход</h1>
     <p class="muted">Агрегатор практических новостей ИБ</p>
     <form method="post" action="/login" class="login-form js-action" data-loading-text="Вход…">

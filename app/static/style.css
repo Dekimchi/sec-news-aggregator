@@ -63,20 +63,49 @@ a:hover { color: #c5eed9; }
   align-items: center;
 }
 
-.brand { display: flex; align-items: baseline; gap: 0.55rem; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+.brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--text);
+  min-width: 0;
+}
+.brand-link:hover { color: var(--accent); text-decoration: none; }
+.brand-link:hover .brand-mark { color: var(--accent); }
+.brand-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(61, 190, 140, 0.25);
+}
+.brand-logo-lg {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+}
 .brand-mark {
   font-weight: 700;
-  font-size: clamp(1.2rem, 2.5vw, 1.45rem);
+  font-size: clamp(1.15rem, 2.5vw, 1.4rem);
   letter-spacing: -0.02em;
   color: var(--text);
+  line-height: 1.1;
 }
-.brand-mark:hover { color: var(--accent); text-decoration: none; }
 .brand-tag {
   color: var(--muted);
   font-size: 0.78rem;
   font-family: var(--mono);
   white-space: nowrap;
 }
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.login-brand .brand-mark { margin: 0; }
 
 .tabs {
   display: flex;
