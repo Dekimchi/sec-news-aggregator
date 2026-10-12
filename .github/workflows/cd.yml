@@ -39,7 +39,7 @@ jobs:
 
       - name: Deploy app + reverse proxy over SSH
         if: steps.check.outputs.configured == 'true'
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         env:
           BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
           APP_DIR: ${{ secrets.DEPLOY_PATH || '/opt/sec-news-aggregator' }}
