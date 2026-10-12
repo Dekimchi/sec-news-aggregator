@@ -125,9 +125,9 @@ Feature-ветки и открытые PR **не деплоятся** на VPS.
 | `logo-mark.png` | знак в шапке портала |
 | `logo-horizontal.png` | горизонтальный логотип |
 | `favicon.ico` / `favicon-*.png` / `apple-touch-icon.png` | иконки вкладки и PWA |
-| `telegram-bot-avatar.png` | аватар Telegram-бота (512×512) |
+| `telegram-bot-avatar.jpg` / `.png` | аватар Telegram-бота (**ровно 640×360**) |
 
-Аватар бота API не ставит сам — в [@BotFather](https://t.me/BotFather): `/setuserpic` → выбрать бота → загрузить `app/static/branding/telegram-bot-avatar.png`.
+Аватар бота API не ставит сам — в [@BotFather](https://t.me/BotFather): `/setuserpic` → выбрать бота → загрузить `app/static/branding/telegram-bot-avatar.jpg` (размер строго 640×360).
 
 ## Заметки по переводу
 
