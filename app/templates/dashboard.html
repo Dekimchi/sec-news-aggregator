@@ -24,28 +24,56 @@
 
 <section class="schedule-panel">
   <h2>Расписание</h2>
-  <div class="schedule-grid">
-    <div class="schedule-row">
-      <span class="schedule-name">Сбор статей</span>
-      <span class="schedule-when mono">каждые {{ schedule.fetch_interval_hours }} ч</span>
-      <span class="schedule-next muted">след.: {{ schedule.ingest_next }}</span>
+  <form method="post" action="/admin/schedule" class="schedule-form js-action" data-loading-text="Сохранение…">
+    {% include "partials/csrf.html" %}
+    <div class="schedule-grid">
+      <div class="schedule-row schedule-row--edit">
+        <span class="schedule-name">Сбор статей</span>
+        <label class="field field-inline schedule-field">
+          <span>каждые</span>
+          <input class="mono" type="number" name="fetch_interval_hours" min="1" max="48" step="1"
+                 value="{{ schedule.fetch_interval_hours }}" required>
+          <span>ч</span>
+        </label>
+        <span class="schedule-next muted">след.: {{ schedule.ingest_next }}</span>
+      </div>
+      <div class="schedule-row schedule-row--edit">
+        <span class="schedule-name">Дайджест Telegram</span>
+        <div class="schedule-digest-controls">
+          <label class="check">
+            <input type="checkbox" name="digest_enabled" value="1"
+                   {% if schedule.digest_enabled %}checked{% endif %}>
+            включён
+          </label>
+          <label class="field field-inline schedule-field">
+            <span>в</span>
+            <input class="mono" type="number" name="digest_hour_utc" min="0" max="23" step="1"
+                   value="{{ schedule.digest_hour_utc }}" required>
+            <span>:05 UTC</span>
+          </label>
+        </div>
+        <span class="schedule-next muted">след.: {{ schedule.digest_next }}</span>
+      </div>
+      <div class="schedule-row">
+        <span class="schedule-name">Пакеты ОС (security)</span>
+        <span class="schedule-when mono">{{ schedule.os_update_label }}</span>
+        <span class="schedule-next muted">systemd · apt update + unattended-upgrade</span>
+      </div>
+      <div class="schedule-row">
+        <span class="schedule-name">GeoIP (РФ)</span>
+        <span class="schedule-when mono">{{ schedule.geoip_label }}</span>
+        <span class="schedule-next muted">timer sec-news-geoip</span>
+      </div>
     </div>
-    <div class="schedule-row">
-      <span class="schedule-name">Дайджест Telegram</span>
-      <span class="schedule-when mono">{{ schedule.digest_label }}</span>
-      <span class="schedule-next muted">след.: {{ schedule.digest_next }}</span>
+    {% if not schedule.digest_configured %}
+    <p class="muted schedule-hint">Дайджест недоступен: задайте <span class="mono">TELEGRAM_BOT_TOKEN</span> и <span class="mono">TELEGRAM_CHAT_ID</span> в <span class="mono">.env</span> на VPS.</p>
+    {% else %}
+    <p class="muted schedule-hint">Час дайджеста — UTC (например 6 ≈ 09:05 МСК). Изменения применяются сразу, без перезапуска.</p>
+    {% endif %}
+    <div class="schedule-actions">
+      <button type="submit" class="btn btn-accent">Сохранить расписание</button>
     </div>
-    <div class="schedule-row">
-      <span class="schedule-name">Пакеты ОС (security)</span>
-      <span class="schedule-when mono">{{ schedule.os_update_label }}</span>
-      <span class="schedule-next muted">systemd · apt update + unattended-upgrade</span>
-    </div>
-    <div class="schedule-row">
-      <span class="schedule-name">GeoIP (РФ)</span>
-      <span class="schedule-when mono">{{ schedule.geoip_label }}</span>
-      <span class="schedule-next muted">timer sec-news-geoip</span>
-    </div>
-  </div>
+  </form>
 </section>
 
 <section class="status-strip">

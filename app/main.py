@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlencode
 
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
@@ -24,6 +25,7 @@ from app.auth import (
 )
 from app.cluster import extract_cves
 from app.config import get_settings
+from app.runtime_settings import get_schedule_settings, save_schedule_settings
 from app.db import (
     connect,
     count_articles,
@@ -99,9 +101,86 @@ _CVE_QUERY = re.compile(r"^\s*(CVE-\d{4}-\d+)\s*$", re.I)
 WEAK_SECRETS = {"", "change-me", "dev-secret-change-on-server", "secnews"}
 
 
-def _scheduler_status() -> dict[str, Any]:
+async def _scheduled_ingest_job() -> None:
+    try:
+        await ingest_once(allow_wait=False, trigger="scheduled")
+    except IngestBusy:
+        log.info("Scheduled ingest skipped: already running")
+    except Exception:  # noqa: BLE001
+        log.exception("Scheduled ingest failed")
+
+
+async def _scheduled_digest_job() -> None:
+    try:
+        settings = get_settings()
+        db = await connect()
+        try:
+            items = await list_hot_for_digest(
+                db,
+                hours=24,
+                limit=10,
+                min_score=settings.brief_min_score,
+            )
+        finally:
+            await db.close()
+        await send_daily_digest(items)
+    except Exception:  # noqa: BLE001
+        log.exception("Daily digest failed")
+
+
+def _apply_schedule(
+    schedule: dict[str, Any],
+    *,
+    run_ingest_soon: bool = False,
+) -> None:
+    """Create/replace APScheduler jobs from effective schedule settings."""
+    hours = int(schedule["fetch_interval_hours"])
+    ingest_kwargs: dict[str, Any] = {
+        "id": "ingest",
+        "replace_existing": True,
+        "max_instances": 1,
+    }
+    if run_ingest_soon:
+        ingest_kwargs["next_run_time"] = datetime.now() + timedelta(seconds=3)
+    scheduler.add_job(
+        _scheduled_ingest_job,
+        "interval",
+        hours=hours,
+        **ingest_kwargs,
+    )
+
+    if schedule.get("digest_active"):
+        hour = int(schedule["digest_hour_utc"])
+        scheduler.add_job(
+            _scheduled_digest_job,
+            "cron",
+            hour=hour,
+            minute=5,
+            id="digest",
+            replace_existing=True,
+            max_instances=1,
+        )
+        log.info("Telegram digest scheduled at %02d:05 UTC", hour)
+    else:
+        try:
+            scheduler.remove_job("digest")
+        except JobLookupError:
+            pass
+        log.info("Telegram digest job disabled")
+
+
+async def _load_and_apply_schedule(*, run_ingest_soon: bool = False) -> dict[str, Any]:
+    db = await connect()
+    try:
+        schedule = await get_schedule_settings(db)
+    finally:
+        await db.close()
+    _apply_schedule(schedule, run_ingest_soon=run_ingest_soon)
+    return schedule
+
+
+def _scheduler_status(schedule: dict[str, Any] | None = None) -> dict[str, Any]:
     """Snapshot of in-process jobs + configured intervals for the dashboard."""
-    settings = get_settings()
     jobs: dict[str, Any] = {}
     if scheduler.running:
         for job in scheduler.get_jobs():
@@ -110,15 +189,27 @@ def _scheduler_status() -> dict[str, Any]:
                 "next_run": nxt.isoformat() if nxt else None,
                 "next_run_display": nxt.strftime("%Y-%m-%d %H:%M UTC") if nxt else "—",
             }
-    digest_on = bool(settings.telegram_digest_enabled and settings.telegram_bot_token)
-    hour = max(0, min(23, int(settings.telegram_digest_hour_utc)))
+    sched = schedule or {}
+    hour = int(sched.get("digest_hour_utc", get_settings().telegram_digest_hour_utc))
+    digest_on = bool(sched.get("digest_active"))
+    if not sched:
+        # Fallback when called without preload (should be rare).
+        base = get_settings()
+        digest_on = bool(base.telegram_digest_enabled and base.telegram_bot_token)
+        hour = int(base.telegram_digest_hour_utc)
     return {
-        "fetch_interval_hours": settings.fetch_interval_hours,
-        "digest_enabled": digest_on,
+        "fetch_interval_hours": int(
+            sched.get("fetch_interval_hours", get_settings().fetch_interval_hours)
+        ),
+        "digest_enabled": bool(sched.get("digest_enabled", digest_on)),
+        "digest_configured": bool(sched.get("digest_configured", True)),
+        "digest_active": digest_on,
         "digest_hour_utc": hour,
         "digest_label": f"ежедневно в {hour:02d}:05 UTC" if digest_on else "выключен",
         "ingest_next": (jobs.get("ingest") or {}).get("next_run_display", "—"),
-        "digest_next": (jobs.get("digest") or {}).get("next_run_display", "—"),
+        "digest_next": (jobs.get("digest") or {}).get("next_run_display", "—")
+        if digest_on
+        else "—",
         "os_update_label": "ежедневно ~04:00 UTC (systemd)",
         "geoip_label": "понедельник ~03:30 UTC (systemd)",
     }
@@ -132,56 +223,14 @@ async def lifespan(_: FastAPI):
             "Weak APP_SECRET / BASIC_AUTH_PASSWORD detected. "
             "Change them in .env before exposing the service."
         )
-    db = await connect()
-    await db.close()
-
-    async def _job():
-        try:
-            await ingest_once(allow_wait=False, trigger="scheduled")
-        except IngestBusy:
-            log.info("Scheduled ingest skipped: already running")
-        except Exception:  # noqa: BLE001
-            log.exception("Scheduled ingest failed")
-
-    async def _digest_job():
-        try:
-            db = await connect()
-            try:
-                items = await list_hot_for_digest(
-                    db,
-                    hours=24,
-                    limit=10,
-                    min_score=settings.brief_min_score,
-                )
-            finally:
-                await db.close()
-            await send_daily_digest(items)
-        except Exception:  # noqa: BLE001
-            log.exception("Daily digest failed")
-
-    scheduler.add_job(
-        _job,
-        "interval",
-        hours=settings.fetch_interval_hours,
-        id="ingest",
-        replace_existing=True,
-        max_instances=1,
-        next_run_time=datetime.now() + timedelta(seconds=3),
+    schedule = await _load_and_apply_schedule(run_ingest_soon=True)
+    if not scheduler.running:
+        scheduler.start()
+    log.info(
+        "Scheduler started: every %s hours; digest=%s",
+        schedule["fetch_interval_hours"],
+        "on" if schedule.get("digest_active") else "off",
     )
-    if settings.telegram_digest_enabled and settings.telegram_bot_token:
-        hour = max(0, min(23, int(settings.telegram_digest_hour_utc)))
-        scheduler.add_job(
-            _digest_job,
-            "cron",
-            hour=hour,
-            minute=5,
-            id="digest",
-            replace_existing=True,
-            max_instances=1,
-        )
-        log.info("Telegram digest scheduled at %02d:05 UTC", hour)
-    scheduler.start()
-    log.info("Scheduler started: every %s hours", settings.fetch_interval_hours)
     yield
     scheduler.shutdown(wait=False)
 
@@ -733,6 +782,7 @@ async def dashboard_page(
     try:
         stats = await dashboard_stats(db)
         runs = await list_ingest_runs(db, limit=50)
+        schedule_cfg = await get_schedule_settings(db)
         selected = None
         if run:
             selected = await get_ingest_run(db, run)
@@ -749,7 +799,7 @@ async def dashboard_page(
             "runs": runs,
             "selected": selected,
             "highlight": run,
-            "schedule": _scheduler_status(),
+            "schedule": _scheduler_status(schedule_cfg),
         },
     )
 
@@ -797,6 +847,46 @@ async def refresh(
         level = "ok"
     target = f"/dashboard?run={run_id}" if run_id else "/dashboard"
     return redirect_with_flash(target, msg, level)
+
+
+@app.post("/admin/schedule")
+async def schedule_update(
+    request: Request,
+    _: Annotated[str, Depends(require_user)],
+    csrf_token: Annotated[str | None, Form()] = None,
+    fetch_interval_hours: Annotated[str, Form()] = "4",
+    digest_hour_utc: Annotated[str, Form()] = "6",
+    digest_enabled: Annotated[str | None, Form()] = None,
+):
+    bad = _csrf_or_flash(request, csrf_token, "/dashboard")
+    if bad:
+        return bad
+    enabled = digest_enabled in {"1", "on", "true", "yes"}
+    db = await connect()
+    try:
+        try:
+            schedule = await save_schedule_settings(
+                db,
+                fetch_interval_hours=fetch_interval_hours,
+                digest_enabled=enabled,
+                digest_hour_utc=digest_hour_utc,
+            )
+        except ValueError as exc:
+            return redirect_with_flash("/dashboard", str(exc), "error")
+    finally:
+        await db.close()
+
+    _apply_schedule(schedule, run_ingest_soon=False)
+    msg = (
+        f"Расписание сохранено: сбор каждые {schedule['fetch_interval_hours']} ч"
+    )
+    if schedule.get("digest_active"):
+        msg += f", дайджест в {int(schedule['digest_hour_utc']):02d}:05 UTC"
+    elif not schedule.get("digest_configured"):
+        msg += "; дайджест недоступен — нет TELEGRAM_* в .env"
+    else:
+        msg += ", дайджест выключен"
+    return redirect_with_flash("/dashboard", msg, "ok")
 
 
 @app.post("/admin/digest-now")
