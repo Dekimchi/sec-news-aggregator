@@ -213,6 +213,7 @@ def _scheduler_status(schedule: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "fetch_interval_hours": fetch_h,
         "fetch_interval_label": hours_phrase(fetch_h),
+        "fetch_hours_word": hours_word(fetch_h),
         "digest_enabled": bool(sched.get("digest_enabled", digest_on)),
         "digest_configured": bool(sched.get("digest_configured", True)),
         "digest_active": digest_on,

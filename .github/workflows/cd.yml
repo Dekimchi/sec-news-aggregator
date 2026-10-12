@@ -57,6 +57,8 @@ jobs:
               exit 1
             fi
             cd "$APP_DIR"
+            # Stop before swapping code so old process cannot load new templates.
+            systemctl stop sec-news || true
             git fetch origin
             # Discard any local drift on the server so pull never blocks CD.
             git checkout -f -B "$BRANCH" "origin/$BRANCH"
@@ -68,7 +70,7 @@ jobs:
             pip install -r requirements.txt
             chmod +x deploy/setup-proxy.sh deploy/setup-geo-ru.sh deploy/setup-system-updates.sh
             bash deploy/setup-proxy.sh
-            systemctl restart sec-news
+            systemctl start sec-news
             sleep 3
             if ! curl -fsS "http://127.0.0.1:8000/health" | grep -q '"ok":true'; then
               echo "sec-news health check failed" >&2
