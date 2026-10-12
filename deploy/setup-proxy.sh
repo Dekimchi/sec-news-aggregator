@@ -38,9 +38,12 @@ systemctl enable caddy fail2ban >/dev/null
 systemctl restart fail2ban
 caddy validate --config /etc/caddy/Caddyfile
 systemctl restart caddy
-# Give Caddy a moment to bind ports
-sleep 1
-systemctl --no-pager --quiet is-active caddy
+sleep 2
+if ! systemctl --no-pager --quiet is-active caddy; then
+  echo "Caddy failed to start:" >&2
+  journalctl -u caddy -n 40 --no-pager >&2 || true
+  exit 1
+fi
 
 echo "Proxy configured (no domain): http://SERVER_IP/ and https://SERVER_IP/ (self-signed)"
 fail2ban-client status sec-news-auth >/dev/null 2>&1 && echo "fail2ban jail: sec-news-auth OK" || echo "fail2ban jail: check later"
