@@ -5,10 +5,11 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/sec-news-aggregator}"
+CERT_DIR="/etc/caddy/certs"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl ufw fail2ban gpg
+apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl ufw fail2ban gpg openssl
 
 if ! command -v caddy >/dev/null 2>&1; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
@@ -19,10 +20,30 @@ if ! command -v caddy >/dev/null 2>&1; then
   apt-get install -y -qq caddy
 fi
 
-mkdir -p /var/log/caddy
-touch /var/log/caddy/sec-news-access.log || true
+mkdir -p /var/log/caddy "$CERT_DIR"
 chown -R caddy:caddy /var/log/caddy
 chmod 755 /var/log/caddy
+
+# Self-signed cert for IP access (no public domain).
+if [ ! -f "$CERT_DIR/cert.pem" ] || [ ! -f "$CERT_DIR/key.pem" ]; then
+  PUB_IP="$(curl -4 -fsS --max-time 5 ifconfig.me 2>/dev/null || true)"
+  if [ -z "${PUB_IP}" ]; then
+    PUB_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  SAN="IP:127.0.0.1,DNS:localhost"
+  if [ -n "${PUB_IP}" ]; then
+    SAN="${SAN},IP:${PUB_IP}"
+  fi
+  openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout "$CERT_DIR/key.pem" \
+    -out "$CERT_DIR/cert.pem" \
+    -days 825 \
+    -subj "/CN=${PUB_IP:-localhost}" \
+    -addext "subjectAltName=${SAN}"
+  chmod 640 "$CERT_DIR/key.pem"
+  chmod 644 "$CERT_DIR/cert.pem"
+  chown -R caddy:caddy "$CERT_DIR"
+fi
 
 install -m 644 "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
 install -m 644 "$APP_DIR/deploy/fail2ban/sec-news-auth.conf" /etc/fail2ban/filter.d/sec-news-auth.conf

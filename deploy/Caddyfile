@@ -1,6 +1,6 @@
-# No-domain mode: HTTP + HTTPS with local/self-signed cert (browser warning is expected).
+# No-domain mode: HTTP + HTTPS with a local self-signed cert (browser warning is expected).
 {
-	auto_https disable_redirects
+	auto_https off
 }
 
 :80 {
@@ -15,7 +15,7 @@
 }
 
 :443 {
-	tls internal
+	tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem
 	encode gzip
 	header {
 		Strict-Transport-Security "max-age=31536000"
