@@ -21,10 +21,29 @@ tmp_v6="$(mktemp)"
 cleanup() { rm -f "$tmp_v4" "$tmp_v6"; }
 trap cleanup EXIT
 
-curl -fsSL --max-time 60 -o "$tmp_v4" "$V4_URL"
+fetch_zone() {
+  local url="$1" out="$2"
+  # ipdeny sometimes breaks HTTP/2; force HTTP/1.1 and retry once.
+  curl --http1.1 -fsSL --retry 2 --retry-delay 2 --max-time 60 -o "$out" "$url"
+}
+
+if ! fetch_zone "$V4_URL" "$tmp_v4"; then
+  if [ -s "$ZONE_DIR/ru-ipv4.zone" ]; then
+    echo "WARN: failed to refresh RU IPv4 zone; reusing cached file" >&2
+    cp "$ZONE_DIR/ru-ipv4.zone" "$tmp_v4"
+  else
+    echo "Failed to download RU IPv4 zone and no cache exists" >&2
+    exit 1
+  fi
+fi
+
 # IPv6 list is optional — empty/missing file just skips v6 rules.
-if ! curl -fsSL --max-time 60 -o "$tmp_v6" "$V6_URL"; then
-  : >"$tmp_v6"
+if ! fetch_zone "$V6_URL" "$tmp_v6"; then
+  if [ -s "$ZONE_DIR/ru-ipv6.zone" ]; then
+    cp "$ZONE_DIR/ru-ipv6.zone" "$tmp_v6"
+  else
+    : >"$tmp_v6"
+  fi
 fi
 
 # Basic sanity: zone must contain at least a few CIDRs.
