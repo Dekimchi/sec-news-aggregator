@@ -7,12 +7,19 @@
     <h1>Дашборд обновлений</h1>
     <p class="muted">Статус сбора ленты и история прогонов</p>
   </div>
-  <form method="post" action="/admin/refresh" class="js-action"
-        data-pending-toast="Обновление ленты… это может занять минуту"
-        data-loading-text="Обновление…">
-    {% include "partials/csrf.html" %}
-    <button type="submit" class="btn btn-accent">Запустить сбор</button>
-  </form>
+  <div class="dash-actions">
+    <form method="post" action="/admin/refresh" class="js-action"
+          data-pending-toast="Обновление ленты… это может занять минуту"
+          data-loading-text="Обновление…">
+      {% include "partials/csrf.html" %}
+      <button type="submit" class="btn btn-accent">Запустить сбор</button>
+    </form>
+    <form method="post" action="/admin/digest-now" class="js-action" data-loading-text="Отправка…">
+      {% include "partials/csrf.html" %}
+      <button type="submit" class="btn btn-ghost">Дайджест в Telegram</button>
+    </form>
+    <a class="btn btn-ghost" href="/export/bookmarks.json">Экспорт закладок</a>
+  </div>
 </section>
 
 <section class="status-strip">
@@ -45,6 +52,21 @@
     <strong class="status-value">{{ stats.hot_count }}</strong>
   </div>
 </section>
+
+{% if stats.source_health %}
+<section class="source-health">
+  <h2>Статус источников</h2>
+  <div class="source-health-grid">
+    {% for s in stats.source_health %}
+    <div class="source-pill status-{{ s.status }}">
+      <strong>{{ s.name }}</strong>
+      <span class="mono">{{ s.status }} · fail {{ s.fail_count }} · {{ s.articles }} ст.</span>
+      {% if s.last_seen %}<span class="muted mono" title="{{ s.last_seen }}">{{ s.last_seen|replace('T', ' ')|truncate(16, True, '') }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
 {% if stats.by_type %}
 <section class="type-bars" aria-label="Разбивка по типам">

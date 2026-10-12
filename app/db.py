@@ -7,8 +7,10 @@ from typing import Any
 
 import aiosqlite
 
+from app.cluster import cluster_key
 from app.config import get_settings
 from app.scoring import score_article
+from app.user_data import ensure_user_tables
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS articles (
@@ -30,7 +32,9 @@ CREATE TABLE IF NOT EXISTS articles (
     is_legislation INTEGER NOT NULL DEFAULT 0,
     lang_original TEXT NOT NULL DEFAULT 'en',
     translated INTEGER NOT NULL DEFAULT 0,
-    interest_score REAL NOT NULL DEFAULT 0
+    interest_score REAL NOT NULL DEFAULT 0,
+    cluster_id TEXT,
+    brief_ru TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);
@@ -74,9 +78,13 @@ async def connect() -> aiosqlite.Connection:
     await db.execute("PRAGMA temp_store=MEMORY;")
     await db.executescript(SCHEMA)
     await _migrate_articles(db)
+    await ensure_user_tables(db)
     # Index after migration so existing DBs without the column do not break startup.
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_articles_interest ON articles(interest_score DESC)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_articles_cluster ON articles(cluster_id)"
     )
     await db.commit()
     return db
@@ -90,6 +98,19 @@ async def _migrate_articles(db: aiosqlite.Connection) -> None:
             "ALTER TABLE articles ADD COLUMN interest_score REAL NOT NULL DEFAULT 0"
         )
         await _backfill_interest_scores(db)
+    if "cluster_id" not in cols:
+        await db.execute("ALTER TABLE articles ADD COLUMN cluster_id TEXT")
+        await _backfill_cluster_ids(db)
+    if "brief_ru" not in cols:
+        await db.execute("ALTER TABLE articles ADD COLUMN brief_ru TEXT")
+
+
+async def _backfill_cluster_ids(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("SELECT id, title, summary FROM articles WHERE cluster_id IS NULL OR cluster_id = ''")
+    rows = await cur.fetchall()
+    for row in rows:
+        key = cluster_key(row["title"] or "", row["summary"])
+        await db.execute("UPDATE articles SET cluster_id = ? WHERE id = ?", (key, row["id"]))
 
 
 async def _backfill_interest_scores(db: aiosqlite.Connection) -> None:
@@ -115,6 +136,9 @@ def row_to_article(row: aiosqlite.Row) -> dict[str, Any]:
     data["is_legislation"] = bool(data.get("is_legislation"))
     data["translated"] = bool(data.get("translated"))
     data["interest_score"] = float(data.get("interest_score") or 0)
+    data["cluster_id"] = data.get("cluster_id") or None
+    data["brief_ru"] = data.get("brief_ru") or None
+    data["cluster_size"] = int(data.get("cluster_size") or 1)
     return data
 
 
@@ -130,20 +154,21 @@ async def upsert_article(db: aiosqlite.Connection, article: dict[str, Any]) -> b
     interest = article.get("interest_score")
     if interest is None:
         interest = score_article(article, retention_days=settings.retention_days)
+    cid = article.get("cluster_id") or cluster_key(article.get("title") or "", article.get("summary"))
 
     try:
-        await db.execute(
+        cur = await db.execute(
             """
             INSERT INTO articles (
                 source_id, source_name, guid, url, title, title_ru,
                 summary, summary_ru, content, published_at, fetched_at,
                 direction, content_type, technologies, is_legislation,
-                lang_original, translated, interest_score
+                lang_original, translated, interest_score, cluster_id, brief_ru
             ) VALUES (
                 :source_id, :source_name, :guid, :url, :title, :title_ru,
                 :summary, :summary_ru, :content, :published_at, :fetched_at,
                 :direction, :content_type, :technologies, :is_legislation,
-                :lang_original, :translated, :interest_score
+                :lang_original, :translated, :interest_score, :cluster_id, :brief_ru
             )
             """,
             {
@@ -165,9 +190,14 @@ async def upsert_article(db: aiosqlite.Connection, article: dict[str, Any]) -> b
                 "lang_original": article.get("lang_original", "en"),
                 "translated": 1 if article.get("translated") else 0,
                 "interest_score": float(interest),
+                "cluster_id": cid,
+                "brief_ru": article.get("brief_ru"),
             },
         )
         await db.commit()
+        article["id"] = int(cur.lastrowid)
+        article["cluster_id"] = cid
+        article["interest_score"] = float(interest)
         return True
     except aiosqlite.IntegrityError:
         return False
@@ -197,10 +227,13 @@ async def get_article(db: aiosqlite.Connection, article_id: int) -> dict[str, An
 
 
 _SORT_SQL = {
-    "newest": "COALESCE(published_at, fetched_at) DESC, id DESC",
-    "oldest": "COALESCE(published_at, fetched_at) ASC, id ASC",
-    "interest": "interest_score DESC, COALESCE(published_at, fetched_at) DESC, id DESC",
-    "source": "source_name ASC, COALESCE(published_at, fetched_at) DESC, id DESC",
+    "newest": "COALESCE(a.published_at, a.fetched_at) DESC, a.id DESC",
+    "oldest": "COALESCE(a.published_at, a.fetched_at) ASC, a.id ASC",
+    "interest": (
+        "(a.interest_score + COALESCE(s.feedback, 0) * 15) DESC, "
+        "COALESCE(a.published_at, a.fetched_at) DESC, a.id DESC"
+    ),
+    "source": "a.source_name ASC, COALESCE(a.published_at, a.fetched_at) DESC, a.id DESC",
 }
 
 
@@ -213,64 +246,109 @@ async def list_articles(
     source_ids: list[str] | None = None,
     hide_legislation: bool = True,
     q: str | None = None,
+    cve: str | None = None,
     translated_only: bool | None = None,
+    bookmarked_only: bool = False,
+    hide_read: bool = False,
+    dedupe_clusters: bool = True,
     sort: str = "newest",
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    clauses: list[str] = []
+    clauses: list[str] = ["1=1"]
     params: list[Any] = []
 
     if hide_legislation:
-        clauses.append("is_legislation = 0")
+        clauses.append("a.is_legislation = 0")
 
     if directions:
         placeholders = ",".join("?" for _ in directions)
-        clauses.append(f"direction IN ({placeholders})")
+        clauses.append(f"a.direction IN ({placeholders})")
         params.extend(directions)
 
     if content_types:
         placeholders = ",".join("?" for _ in content_types)
-        clauses.append(f"content_type IN ({placeholders})")
+        clauses.append(f"a.content_type IN ({placeholders})")
         params.extend(content_types)
 
     if source_ids:
         placeholders = ",".join("?" for _ in source_ids)
-        clauses.append(f"source_id IN ({placeholders})")
+        clauses.append(f"a.source_id IN ({placeholders})")
         params.extend(source_ids)
 
     if technologies:
         tech_parts = []
         for tech in technologies:
-            tech_parts.append("technologies LIKE ?")
+            tech_parts.append("a.technologies LIKE ?")
             params.append(f'%"{tech}"%')
         clauses.append("(" + " OR ".join(tech_parts) + ")")
 
     if q:
-        clauses.append("(title LIKE ? OR summary LIKE ? OR title_ru LIKE ? OR summary_ru LIKE ?)")
+        clauses.append(
+            "(a.title LIKE ? OR a.summary LIKE ? OR a.title_ru LIKE ? OR a.summary_ru LIKE ? OR a.brief_ru LIKE ?)"
+        )
         like = f"%{q}%"
-        params.extend([like, like, like, like])
+        params.extend([like, like, like, like, like])
+
+    if cve:
+        cve_q = cve.strip().upper()
+        clauses.append("(UPPER(a.title) LIKE ? OR UPPER(COALESCE(a.summary,'')) LIKE ?)")
+        like = f"%{cve_q}%"
+        params.extend([like, like])
 
     if translated_only is True:
-        clauses.append("translated = 1")
+        clauses.append("a.translated = 1")
     elif translated_only is False:
-        clauses.append("translated = 0")
+        clauses.append("a.translated = 0")
 
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    # ORDER BY comes only from the allowlisted _SORT_SQL values (never from user input).
+    if bookmarked_only:
+        clauses.append("COALESCE(s.bookmarked, 0) = 1")
+    if hide_read:
+        clauses.append("COALESCE(s.is_read, 0) = 0")
+
+    where = "WHERE " + " AND ".join(clauses)
     order_by = _SORT_SQL.get(sort, _SORT_SQL["newest"])
     if order_by not in _SORT_SQL.values():
         order_by = _SORT_SQL["newest"]
+
+    fetch_limit = (offset + limit) * 4 if dedupe_clusters else limit
+    fetch_offset = 0 if dedupe_clusters else offset
     sql = (
-        "SELECT * FROM articles "
+        "SELECT a.*, "
+        "COALESCE(s.bookmarked, 0) AS bookmarked, "
+        "COALESCE(s.is_read, 0) AS is_read, "
+        "COALESCE(s.feedback, 0) AS feedback, "
+        "(SELECT COUNT(*) FROM articles c WHERE c.cluster_id = a.cluster_id AND c.is_legislation = 0) AS cluster_size "
+        "FROM articles a "
+        "LEFT JOIN article_state s ON s.article_id = a.id "
         f"{where} "
         f"ORDER BY {order_by} "  # nosec B608
         "LIMIT ? OFFSET ?"
     )
-    params.extend([limit, offset])
+    params.extend([fetch_limit, fetch_offset])
     cur = await db.execute(sql, params)
     rows = await cur.fetchall()
-    return [row_to_article(r) for r in rows]
+    articles = []
+    for r in rows:
+        item = row_to_article(r)
+        item["bookmarked"] = bool(r["bookmarked"])
+        item["is_read"] = bool(r["is_read"])
+        item["feedback"] = int(r["feedback"] or 0)
+        item["effective_score"] = float(item["interest_score"]) + item["feedback"] * 15
+        item["cluster_size"] = int(r["cluster_size"] or 1)
+        articles.append(item)
+
+    if dedupe_clusters:
+        seen: set[str] = set()
+        deduped: list[dict[str, Any]] = []
+        for a in articles:
+            key = a.get("cluster_id") or f"id:{a['id']}"
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(a)
+        articles = deduped[offset : offset + limit]
+    return articles
 
 
 async def count_articles(
@@ -447,7 +525,131 @@ async def dashboard_stats(db: aiosqlite.Connection) -> dict[str, Any]:
         "hot_count": hot_count,
         "last_run": last,
         "by_type": by_type,
+        "source_health": await source_health(db),
     }
+
+
+async def source_health(db: aiosqlite.Connection, *, recent_runs: int = 12) -> list[dict[str, Any]]:
+    cur = await db.execute(
+        """
+        SELECT source_id, source_name,
+               COUNT(*) AS articles,
+               MAX(COALESCE(published_at, fetched_at)) AS last_seen
+        FROM articles
+        WHERE is_legislation = 0
+        GROUP BY source_id, source_name
+        ORDER BY source_name
+        """
+    )
+    by_source = {
+        r["source_id"]: {
+            "id": r["source_id"],
+            "name": r["source_name"],
+            "articles": int(r["articles"]),
+            "last_seen": r["last_seen"],
+            "fail_count": 0,
+            "status": "ok",
+        }
+        for r in await cur.fetchall()
+    }
+
+    runs = await list_ingest_runs(db, limit=recent_runs)
+    for run in runs:
+        for sid in run.get("failed_sources") or []:
+            if sid not in by_source:
+                by_source[sid] = {
+                    "id": sid,
+                    "name": sid,
+                    "articles": 0,
+                    "last_seen": None,
+                    "fail_count": 0,
+                    "status": "failing",
+                }
+            by_source[sid]["fail_count"] += 1
+
+    now = datetime.now(timezone.utc)
+    out = []
+    for item in by_source.values():
+        if item["fail_count"] >= 3:
+            item["status"] = "failing"
+        elif item["last_seen"]:
+            try:
+                dt = datetime.fromisoformat(str(item["last_seen"]).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_h = (now - dt).total_seconds() / 3600
+                if age_h > 48:
+                    item["status"] = "silent"
+            except ValueError:
+                item["status"] = "unknown"
+        else:
+            item["status"] = "failing" if item["fail_count"] else "unknown"
+        out.append(item)
+    out.sort(key=lambda x: (0 if x["status"] == "failing" else 1 if x["status"] == "silent" else 2, x["name"]))
+    return out
+
+
+async def list_hot_for_digest(
+    db: aiosqlite.Connection,
+    *,
+    hours: int = 24,
+    limit: int = 10,
+    min_score: float = 55.0,
+) -> list[dict[str, Any]]:
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    cur = await db.execute(
+        """
+        SELECT a.*, COALESCE(s.feedback, 0) AS feedback
+        FROM articles a
+        LEFT JOIN article_state s ON s.article_id = a.id
+        WHERE a.is_legislation = 0
+          AND COALESCE(a.published_at, a.fetched_at) >= ?
+          AND (a.interest_score + COALESCE(s.feedback, 0) * 15) >= ?
+        ORDER BY (a.interest_score + COALESCE(s.feedback, 0) * 15) DESC,
+                 COALESCE(a.published_at, a.fetched_at) DESC
+        LIMIT ?
+        """,
+        (cutoff, min_score, limit),
+    )
+    rows = await cur.fetchall()
+    articles = []
+    for r in rows:
+        item = row_to_article(r)
+        item["feedback"] = int(r["feedback"] or 0)
+        item["effective_score"] = float(item["interest_score"]) + item["feedback"] * 15
+        articles.append(item)
+    return articles
+
+
+async def update_brief(db: aiosqlite.Connection, article_id: int, brief_ru: str) -> None:
+    await db.execute("UPDATE articles SET brief_ru = ? WHERE id = ?", (brief_ru, article_id))
+    await db.commit()
+
+
+async def get_articles_by_ids(db: aiosqlite.Connection, ids: list[int]) -> list[dict[str, Any]]:
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    cur = await db.execute(
+        f"SELECT * FROM articles WHERE id IN ({placeholders})",  # nosec B608
+        ids,
+    )
+    by_id = {int(r["id"]): row_to_article(r) for r in await cur.fetchall()}
+    return [by_id[i] for i in ids if i in by_id]
+
+
+async def list_cluster_members(db: aiosqlite.Connection, cluster_id: str) -> list[dict[str, Any]]:
+    if not cluster_id:
+        return []
+    cur = await db.execute(
+        """
+        SELECT * FROM articles
+        WHERE cluster_id = ? AND is_legislation = 0
+        ORDER BY interest_score DESC, COALESCE(published_at, fetched_at) DESC
+        """,
+        (cluster_id,),
+    )
+    return [row_to_article(r) for r in await cur.fetchall()]
 
 
 def is_older_than(iso_ts: str | None, days: int) -> bool:
