@@ -71,10 +71,11 @@ scheduler = AsyncIOScheduler()
 DIRECTIONS = list(DIRECTION_LABELS.keys())
 CONTENT_TYPES = list(CONTENT_TYPE_LABELS.keys())
 TECHNOLOGIES = list(TECHNOLOGY_LABELS.keys())
+# Default feed order puts interesting articles first; not exposed in the UI sort control.
+DEFAULT_SORT = "interest"
 SORT_OPTIONS = {
     "newest": "Сначала новые",
     "oldest": "Сначала старые",
-    "interest": "По интересности",
     "source": "По источнику",
 }
 
@@ -177,7 +178,7 @@ def _feed_query_string(
         pairs.append(("page", str(page)))
     if q:
         pairs.append(("q", q))
-    if sort and sort != "newest":
+    if sort and sort != DEFAULT_SORT:
         pairs.append(("sort", sort))
     if translated:
         pairs.append(("translated", translated))
@@ -238,11 +239,11 @@ async def index(
     source: Annotated[list[str] | None, Query()] = None,
     q: Annotated[str | None, Query()] = None,
     translated: Annotated[str | None, Query()] = None,
-    sort: Annotated[str, Query()] = "newest",
+    sort: Annotated[str, Query()] = DEFAULT_SORT,
     page: Annotated[int, Query(ge=1)] = 1,
 ):
-    if sort not in SORT_OPTIONS:
-        sort = "newest"
+    if sort not in SORT_OPTIONS and sort != DEFAULT_SORT:
+        sort = DEFAULT_SORT
 
     translated_only = None
     if translated == "yes":

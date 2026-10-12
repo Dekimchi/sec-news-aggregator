@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply pending apt security updates for sec-news host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/unattended-upgrade -v
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

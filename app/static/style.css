@@ -17,8 +17,8 @@
   --font: "Sora", "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
-  --pad: clamp(0.85rem, 2.5vw, 1.5rem);
-  --max: 1180px;
+  --pad: clamp(0.85rem, 2vw, 1.75rem);
+  --max: 100%;
 }
 
 * { box-sizing: border-box; }
@@ -37,8 +37,6 @@ body {
   line-height: 1.5;
 }
 
-body.drawer-open { overflow: hidden; }
-
 a { color: #9fd9bf; text-decoration: none; }
 a:hover { color: #c5eed9; }
 
@@ -56,9 +54,9 @@ a:hover { color: #c5eed9; }
 }
 
 .shell-top-inner {
-  max-width: var(--max);
-  margin: 0 auto;
-  padding: 0.75rem var(--pad);
+  width: 100%;
+  margin: 0;
+  padding: 0.75rem clamp(0.85rem, 3vw, 2rem);
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 0.85rem 1.25rem;
@@ -182,37 +180,51 @@ button:disabled { opacity: 0.65; cursor: wait; }
 .icon-btn.is-open span:last-child { transform: translateY(-3.5px) rotate(-45deg); }
 
 .shell-main {
-  max-width: var(--max);
-  margin: 0 auto;
-  padding: var(--pad);
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: var(--pad) clamp(0.85rem, 3vw, 2rem);
 }
 
 .main-feed {
-  display: grid;
-  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
-  gap: 1.25rem;
-  align-items: start;
+  display: block;
+  width: 100%;
 }
 
-.main-dashboard { display: grid; gap: 1.25rem; }
-.main-article { max-width: 760px; }
+.main-dashboard { display: grid; gap: 1.25rem; width: 100%; }
+.main-article { width: min(860px, 100%); margin: 0 auto; }
 
-.filters {
-  position: sticky;
-  top: 4.6rem;
-  background: var(--panel);
+.filter-dropdown { position: relative; }
+.filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #04140e;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.filter-popover {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  z-index: 35;
+  width: min(420px, calc(100vw - 2rem));
+  max-height: min(70vh, 640px);
+  overflow: auto;
+  background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 1rem;
   box-shadow: var(--shadow);
+  animation: item-in 0.18s ease;
 }
-.filters-head {
-  display: none;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.75rem;
-}
-.filters-head h2 { margin: 0; font-size: 1.05rem; }
+.filter-dropdown.is-open .filter-popover { display: block; }
 
 .filter-form { display: grid; gap: 0.9rem; }
 fieldset {
@@ -258,17 +270,7 @@ input:focus, select:focus {
 .actions { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; }
 .ghost-link { color: var(--muted); font-size: 0.9rem; }
 
-.drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 45;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-.drawer-backdrop.is-visible { opacity: 1; }
-
-.feed { min-width: 0; }
+.feed { min-width: 0; width: 100%; }
 .feed-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -416,6 +418,8 @@ input:focus, select:focus {
   display: grid;
   gap: 0.35rem;
   align-content: start;
+  min-width: 0;
+  overflow: hidden;
   transition: border-color 0.2s ease, transform 0.2s ease;
 }
 .status-cell:hover { border-color: #3d5548; transform: translateY(-1px); }
@@ -424,7 +428,15 @@ input:focus, select:focus {
   font-size: 0.78rem;
   font-family: var(--mono);
 }
-.status-value { font-size: 1.15rem; font-weight: 650; }
+.status-value {
+  font-size: clamp(0.95rem, 1.6vw, 1.15rem);
+  font-weight: 650;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.25;
+}
+.status-cell .badge { max-width: 100%; }
 
 .type-bars {
   display: grid;
@@ -605,21 +617,11 @@ input:focus, select:focus {
   .shell-top { position: sticky; }
   .shell-top-inner { position: relative; }
 
-  .main-feed { grid-template-columns: 1fr; }
-  .filters {
-    position: fixed;
-    top: 0;
+  .filter-popover {
     left: 0;
-    bottom: 0;
-    width: min(340px, 92vw);
-    z-index: 50;
-    border-radius: 0;
-    transform: translateX(-105%);
-    transition: transform 0.25s ease;
-    overflow: auto;
+    right: auto;
+    width: min(100vw - 2rem, 420px);
   }
-  .filters.is-open { transform: translateX(0); }
-  .filters-head { display: flex; }
 
   .updates-layout { grid-template-columns: 1fr; }
   .brand-tag { display: none; }

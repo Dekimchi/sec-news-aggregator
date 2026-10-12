@@ -20,7 +20,7 @@
   <div class="status-cell">
     <span class="status-label">Последний сбор</span>
     {% if last %}
-    <strong class="status-value mono">{{ last.finished_at }}</strong>
+    <strong class="status-value mono" title="{{ last.finished_at }}">{{ last.finished_at|replace('T', ' ')|truncate(16, True, '') }}</strong>
     <span class="badge {% if last.status == 'ok' %}ok{% else %}warn{% endif %}">
       {% if last.status == 'ok' %}успех{% elif last.status == 'partial' %}частично{% else %}ошибка{% endif %}
     </span>
