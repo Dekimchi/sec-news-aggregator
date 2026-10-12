@@ -31,6 +31,17 @@ jobs:
       - name: Import sanity check
         run: python -c "from app.main import app; print(app.title)"
 
+      - name: Template readiness check
+        run: |
+          python - <<'PY'
+          from app.main import templates, _READY_TEMPLATES, _READY_FILTERS
+          missing = [n for n in _READY_FILTERS if n not in templates.env.filters]
+          assert not missing, missing
+          for name in _READY_TEMPLATES:
+              templates.env.get_template(name)
+          print("ready templates ok:", ", ".join(_READY_TEMPLATES))
+          PY
+
       - name: Run tests
         run: PYTHONPATH=. pytest -q
 
