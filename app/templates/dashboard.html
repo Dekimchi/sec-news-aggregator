@@ -90,7 +90,7 @@
                 <input class="sched-input mono" type="number" name="fetch_interval_hours" id="fetch-interval-input"
                        min="1" max="48" step="1" value="{{ schedule.fetch_interval_hours }}" required
                        data-hours-suffix="#fetch-hours-suffix">
-                <span class="sched-suffix" id="fetch-hours-suffix">{{ schedule.fetch_interval_hours|hours_word }}</span>
+                <span class="sched-suffix" id="fetch-hours-suffix">{{ schedule.fetch_hours_word }}</span>
               </span>
             </label>
             <div class="sched-meta">
