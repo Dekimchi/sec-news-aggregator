@@ -116,6 +116,19 @@ Feature-ветки и открытые PR **не деплоятся** на VPS.
 
 Пример unit-файла: `deploy/sec-news.service`.
 
+## Брендинг
+
+Статика в `app/static/branding/`:
+
+| Файл | Назначение |
+|---|---|
+| `logo-mark.png` | знак в шапке портала |
+| `logo-horizontal.png` | горизонтальный логотип |
+| `favicon.ico` / `favicon-*.png` / `apple-touch-icon.png` | иконки вкладки и PWA |
+| `telegram-bot-avatar.png` | аватар Telegram-бота (512×512) |
+
+Аватар бота API не ставит сам — в [@BotFather](https://t.me/BotFather): `/setuserpic` → выбрать бота → загрузить `app/static/branding/telegram-bot-avatar.png`.
+
 ## Заметки по переводу
 
 - Локальный LibreTranslate на 2–4 GB не рекомендуется.
