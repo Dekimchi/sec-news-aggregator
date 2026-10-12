@@ -38,7 +38,6 @@ CREATE INDEX IF NOT EXISTS idx_articles_direction ON articles(direction);
 CREATE INDEX IF NOT EXISTS idx_articles_content_type ON articles(content_type);
 CREATE INDEX IF NOT EXISTS idx_articles_legislation ON articles(is_legislation);
 CREATE INDEX IF NOT EXISTS idx_articles_source ON articles(source_id);
-CREATE INDEX IF NOT EXISTS idx_articles_interest ON articles(interest_score DESC);
 
 CREATE TABLE IF NOT EXISTS ingest_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +74,10 @@ async def connect() -> aiosqlite.Connection:
     await db.execute("PRAGMA temp_store=MEMORY;")
     await db.executescript(SCHEMA)
     await _migrate_articles(db)
+    # Index after migration so existing DBs without the column do not break startup.
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_articles_interest ON articles(interest_score DESC)"
+    )
     await db.commit()
     return db
 
@@ -85,9 +88,6 @@ async def _migrate_articles(db: aiosqlite.Connection) -> None:
     if "interest_score" not in cols:
         await db.execute(
             "ALTER TABLE articles ADD COLUMN interest_score REAL NOT NULL DEFAULT 0"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_articles_interest ON articles(interest_score DESC)"
         )
         await _backfill_interest_scores(db)
 
