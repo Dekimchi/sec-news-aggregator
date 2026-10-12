@@ -50,8 +50,10 @@ jobs:
             set -euo pipefail
             cd "$APP_DIR"
             git fetch origin
-            git checkout -B "$BRANCH" "origin/$BRANCH"
+            # Discard any local drift on the server so pull never blocks CD.
+            git checkout -f -B "$BRANCH" "origin/$BRANCH"
             git reset --hard "origin/$BRANCH"
+            git clean -fd
             python3 -m venv .venv
             . .venv/bin/activate
             pip install --upgrade pip
