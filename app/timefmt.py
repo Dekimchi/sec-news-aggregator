@@ -75,3 +75,46 @@ def format_vladivostok(
         return local.strftime("%d.%m.%Y")
     stamp = local.strftime("%d.%m.%Y %H:%M")
     return f"{stamp} VLAT" if with_tz else stamp
+
+
+def group_articles_by_fetch_day(articles: list[dict]) -> list[dict]:
+    """Group feed items by Vladivostok calendar day of fetched_at (newest first)."""
+    buckets: dict[str, list[dict]] = {}
+    order_keys: list[tuple[datetime, str]] = []
+    for article in articles:
+        raw = article.get("fetched_at") or article.get("published_at")
+        dt = _parse_dt(raw)
+        if dt is None:
+            day_key = "без даты"
+            sort_dt = datetime.min.replace(tzinfo=UTC)
+        else:
+            local = dt.astimezone(TZ_VLADIVOSTOK)
+            day_key = local.strftime("%d.%m.%Y")
+            sort_dt = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        if day_key not in buckets:
+            buckets[day_key] = []
+            order_keys.append((sort_dt, day_key))
+        buckets[day_key].append(article)
+
+    order_keys.sort(key=lambda pair: pair[0], reverse=True)
+    groups: list[dict] = []
+    for index, (_, day_key) in enumerate(order_keys):
+        fresh = index == 0
+        groups.append(
+            {
+                "date_key": day_key,
+                "fresh": fresh,
+                "label": (
+                    f"Актуальное обновление · {day_key}"
+                    if fresh
+                    else f"Прошлое обновление · {day_key}"
+                ),
+                "hint": (
+                    "Свежий сбор — карточки ярче"
+                    if fresh
+                    else "Более ранний сбор — приглушено"
+                ),
+                "articles": buckets[day_key],
+            }
+        )
+    return groups

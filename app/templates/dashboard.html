@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Дашборд — sec-news{% endblock %}
+{% block title %}Сбор и диагностика — sec-news{% endblock %}
 {% block main_class %}main-dashboard{% endblock %}
 {% block content %}
 <section class="dash-hero">
   <div>
-    <h1>Настройки</h1>
-    <p class="muted">Сбор, дайджест, источники и диагностика</p>
+    <h1>Сбор и диагностика</h1>
+    <p class="muted">Расписание, статусы источников, история прогонов и дайджест</p>
   </div>
   <div class="dash-actions">
     <form method="post" action="/admin/digest-now" class="js-action" data-loading-text="Отправка…">

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from app.timefmt import (
     format_vladivostok,
+    group_articles_by_fetch_day,
     hours_phrase,
     hours_word,
     utc_hour_to_vlad,
@@ -33,3 +34,19 @@ def test_format_vladivostok():
     dt = datetime(2026, 10, 12, 6, 5, tzinfo=timezone.utc)
     assert format_vladivostok(dt) == "12.10.2026 16:05 VLAT"
     assert "VLAT" not in format_vladivostok(dt, with_tz=False)
+
+
+def test_group_articles_by_fetch_day_orders_newest_first():
+    groups = group_articles_by_fetch_day(
+        [
+            {"id": 1, "fetched_at": "2026-10-10T10:00:00+00:00", "title": "old"},
+            {"id": 2, "fetched_at": "2026-10-12T02:00:00+00:00", "title": "new"},
+            {"id": 3, "fetched_at": "2026-10-12T08:00:00+00:00", "title": "new2"},
+        ]
+    )
+    assert len(groups) == 2
+    assert groups[0]["fresh"] is True
+    assert "Актуальное" in groups[0]["label"]
+    assert [a["id"] for a in groups[0]["articles"]] == [2, 3]
+    assert groups[1]["fresh"] is False
+    assert "Прошлое" in groups[1]["label"]

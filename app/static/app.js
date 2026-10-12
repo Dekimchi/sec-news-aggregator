@@ -121,15 +121,32 @@
     var roots = qsa("[data-dropdown]");
     if (!roots.length) return;
 
+    function isOpen(root) {
+      return root.classList.contains("is-open");
+    }
+
+    function closeOne(root) {
+      var toggle = qs("[data-dropdown-toggle]", root);
+      var panel = qs("[data-dropdown-panel]", root);
+      if (!toggle || !panel) return;
+      panel.hidden = true;
+      root.classList.remove("is-open");
+      toggle.setAttribute("aria-expanded", "false");
+    }
+
+    function openOne(root) {
+      var toggle = qs("[data-dropdown-toggle]", root);
+      var panel = qs("[data-dropdown-panel]", root);
+      if (!toggle || !panel) return;
+      panel.hidden = false;
+      root.classList.add("is-open");
+      toggle.setAttribute("aria-expanded", "true");
+    }
+
     function closeAll(except) {
       roots.forEach(function (root) {
         if (except && root === except) return;
-        var toggle = qs("[data-dropdown-toggle]", root);
-        var panel = qs("[data-dropdown-panel]", root);
-        if (!toggle || !panel) return;
-        panel.hidden = true;
-        root.classList.remove("is-open");
-        toggle.setAttribute("aria-expanded", "false");
+        closeOne(root);
       });
     }
 
@@ -138,17 +155,18 @@
       var panel = qs("[data-dropdown-panel]", root);
       if (!toggle || !panel) return;
 
+      // Ensure closed initial state even if CSS previously forced display.
+      closeOne(root);
+
       toggle.addEventListener("click", function (e) {
+        e.preventDefault();
         e.stopPropagation();
-        var willOpen = panel.hidden;
+        var wasOpen = isOpen(root);
         closeAll();
-        if (willOpen) {
-          panel.hidden = false;
-          root.classList.add("is-open");
-          toggle.setAttribute("aria-expanded", "true");
-        }
+        if (!wasOpen) openOne(root);
       });
       panel.addEventListener("click", function (e) {
+        // Keep open while interacting inside; links still navigate.
         e.stopPropagation();
       });
     });
