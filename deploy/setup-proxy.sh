@@ -20,7 +20,9 @@ if ! command -v caddy >/dev/null 2>&1; then
 fi
 
 mkdir -p /var/log/caddy
-chown caddy:caddy /var/log/caddy || true
+touch /var/log/caddy/sec-news-access.log || true
+chown -R caddy:caddy /var/log/caddy
+chmod 755 /var/log/caddy
 
 install -m 644 "$APP_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
 install -m 644 "$APP_DIR/deploy/fail2ban/sec-news-auth.conf" /etc/fail2ban/filter.d/sec-news-auth.conf
@@ -36,6 +38,9 @@ systemctl enable caddy fail2ban >/dev/null
 systemctl restart fail2ban
 caddy validate --config /etc/caddy/Caddyfile
 systemctl restart caddy
+# Give Caddy a moment to bind ports
+sleep 1
+systemctl --no-pager --quiet is-active caddy
 
 echo "Proxy configured (no domain): http://SERVER_IP/ and https://SERVER_IP/ (self-signed)"
-echo "fail2ban: $(fail2ban-client status sec-news-auth 2>/dev/null | head -n 2 || echo 'jail loading')"
+fail2ban-client status sec-news-auth >/dev/null 2>&1 && echo "fail2ban jail: sec-news-auth OK" || echo "fail2ban jail: check later"

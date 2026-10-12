@@ -1,6 +1,7 @@
 # No-domain mode: HTTP + HTTPS with local/self-signed cert (browser warning is expected).
-# When you get a domain later, replace this file contents with a hostname block
-# and set SITE_ADDRESS=your.domain in setup-proxy.sh / CD.
+{
+	auto_https disable_redirects
+}
 
 :80 {
 	encode gzip
@@ -11,10 +12,6 @@
 		-Server
 	}
 	reverse_proxy 127.0.0.1:8000
-	log {
-		output file /var/log/caddy/sec-news-access.log
-		format console
-	}
 }
 
 :443 {
@@ -28,8 +25,4 @@
 		-Server
 	}
 	reverse_proxy 127.0.0.1:8000
-	log {
-		output file /var/log/caddy/sec-news-access.log
-		format console
-	}
 }

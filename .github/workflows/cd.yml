@@ -61,5 +61,7 @@ jobs:
             systemctl restart sec-news
             sleep 2
             curl -fsS "http://127.0.0.1:8000/health" | grep -q '"ok":true'
-            curl -fsS "http://127.0.0.1/health" | grep -q '"ok":true' || curl -fsSk "https://127.0.0.1/health" | grep -q '"ok":true'
+            systemctl --no-pager --quiet is-active caddy
+            curl -fsS "http://127.0.0.1/health" | grep -q '"ok":true'
+            curl -fsSk "https://127.0.0.1/health" | grep -q '"ok":true'
             echo "Deploy + proxy OK"
