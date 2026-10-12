@@ -513,6 +513,30 @@ input:focus, select:focus {
 .schedule-name { font-weight: 600; }
 .schedule-when { color: var(--text); font-size: 0.9rem; }
 .schedule-next { font-size: 0.86rem; min-width: 0; overflow-wrap: anywhere; }
+.schedule-form { display: grid; gap: 0.75rem; }
+.schedule-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+}
+.schedule-field input[type="number"] {
+  width: 4.2rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  color: var(--text);
+  font-family: var(--mono);
+}
+.schedule-digest-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+}
+.schedule-hint { margin: 0; font-size: 0.86rem; }
+.schedule-actions { display: flex; gap: 0.5rem; }
 
 .status-strip {
   display: grid;

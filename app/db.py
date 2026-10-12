@@ -10,6 +10,7 @@ import aiosqlite
 from app.cluster import cluster_key
 from app.config import get_settings
 from app.scoring import score_article
+from app.runtime_settings import ensure_runtime_tables
 from app.user_data import ensure_user_tables
 
 SCHEMA = """
@@ -79,6 +80,7 @@ async def connect() -> aiosqlite.Connection:
     await db.executescript(SCHEMA)
     await _migrate_articles(db)
     await ensure_user_tables(db)
+    await ensure_runtime_tables(db)
     # Index after migration so existing DBs without the column do not break startup.
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_articles_interest ON articles(interest_score DESC)"
