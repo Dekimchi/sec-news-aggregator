@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Дашборд — sec-news{% endblock %}
+{% block main_class %}main-dashboard{% endblock %}
+{% block content %}
+<section class="dash-hero">
+  <div>
+    <h1>Дашборд обновлений</h1>
+    <p class="muted">Статус сбора ленты и история прогонов</p>
+  </div>
+  <form method="post" action="/admin/refresh" class="js-action"
+        data-pending-toast="Обновление ленты… это может занять минуту"
+        data-loading-text="Обновление…">
+    {% include "partials/csrf.html" %}
+    <button type="submit" class="btn btn-accent">Запустить сбор</button>
+  </form>
+</section>
+
+<section class="status-strip">
+  {% set last = stats.last_run %}
+  <div class="status-cell">
+    <span class="status-label">Последний сбор</span>
+    {% if last %}
+    <strong class="status-value mono">{{ last.finished_at }}</strong>
+    <span class="badge {% if last.status == 'ok' %}ok{% else %}warn{% endif %}">
+      {% if last.status == 'ok' %}успех{% elif last.status == 'partial' %}частично{% else %}ошибка{% endif %}
+    </span>
+    {% else %}
+    <strong class="status-value">ещё не было</strong>
+    {% endif %}
+  </div>
+  <div class="status-cell">
+    <span class="status-label">Новых / переведено</span>
+    <strong class="status-value">{% if last %}{{ last.inserted }} / {{ last.translated }}{% else %}—{% endif %}</strong>
+  </div>
+  <div class="status-cell">
+    <span class="status-label">Ошибки источников</span>
+    <strong class="status-value">{% if last %}{{ last.errors }}{% else %}—{% endif %}</strong>
+  </div>
+  <div class="status-cell">
+    <span class="status-label">Статей в базе</span>
+    <strong class="status-value">{{ stats.total_articles }}</strong>
+  </div>
+  <div class="status-cell">
+    <span class="status-label">Интересных (≥55)</span>
+    <strong class="status-value">{{ stats.hot_count }}</strong>
+  </div>
+</section>
+
+{% if stats.by_type %}
+<section class="type-bars" aria-label="Разбивка по типам">
+  {% set max_c = stats.by_type|map(attribute='count')|max %}
+  {% for row in stats.by_type %}
+  <div class="type-bar-row">
+    <span>{{ row.content_type|label_content_type }}</span>
+    <div class="type-bar-track">
+      <div class="type-bar-fill" style="--w: {{ (row.count / max_c * 100) if max_c else 0 }}%"></div>
+    </div>
+    <span class="mono">{{ row.count }}</span>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if last and last.failed_sources %}
+<section class="fail-banner">
+  <h2>Недоступные источники (последний прогон)</h2>
+  <ul>
+    {% for s in last.failed_sources %}
+    <li><code>{{ s }}</code></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="updates-layout">
+  <aside class="updates-list">
+    <h2>История</h2>
+    <p class="muted">Ручной и плановый сбор</p>
+    {% for r in runs %}
+    <a class="run-item {% if selected and r.id == selected.id %}is-active{% endif %}"
+       href="/dashboard?run={{ r.id }}">
+      <div class="run-item-top">
+        <span class="badge {% if r.status == 'ok' %}ok{% else %}warn{% endif %}">
+          {% if r.status == 'ok' %}успех{% elif r.status == 'partial' %}частично{% else %}ошибка{% endif %}
+        </span>
+        <span class="muted">{{ r.trigger }}</span>
+      </div>
+      <div class="run-item-time mono">{{ r.finished_at }}</div>
+      <div class="run-item-stats">+{{ r.inserted }} новых · {{ r.translated }} пер. · {{ r.errors }} ош.</div>
+    </a>
+    {% else %}
+    <p class="empty">Пока нет записей. Запустите сбор.</p>
+    {% endfor %}
+  </aside>
+
+  <section class="updates-detail">
+    {% if selected %}
+    <h2>Обновление #{{ selected.id }}</h2>
+    <p class="meta">
+      <span class="mono">{{ selected.finished_at }}</span>
+      · {% if selected.trigger == 'manual' %}вручную{% else %}по расписанию{% endif %}
+      ·
+      {% if selected.status == 'ok' %}успех
+      {% elif selected.status == 'partial' %}частично
+      {% else %}ошибка{% endif %}
+    </p>
+
+    <dl class="stats-grid">
+      <div><dt>Источников</dt><dd>{{ selected.sources }}</dd></div>
+      <div><dt>Прочитано</dt><dd>{{ selected.fetched }}</dd></div>
+      <div><dt>Новых</dt><dd>{{ selected.inserted }}</dd></div>
+      <div><dt>Переведено</dt><dd>{{ selected.translated }}</dd></div>
+      <div><dt>Старше недели</dt><dd>{{ selected.skipped_old }}</dd></div>
+      <div><dt>Законодательство</dt><dd>{{ selected.skipped_legislation }}</dd></div>
+      <div><dt>Удалено</dt><dd>{{ selected.purged }}</dd></div>
+      <div><dt>Ошибок</dt><dd>{{ selected.errors }}</dd></div>
+    </dl>
+
+    {% if selected.failed_sources %}
+    <section class="block">
+      <h3>Недоступные источники</h3>
+      <ul>
+        {% for s in selected.failed_sources %}
+        <li><code>{{ s }}</code></li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    {% if selected.error_message %}
+    <section class="block">
+      <h3>Сообщение об ошибке</h3>
+      <p class="error">{{ selected.error_message }}</p>
+    </section>
+    {% endif %}
+
+    <p class="muted mono">Начало: {{ selected.started_at }}</p>
+    {% else %}
+    <p class="empty">Выберите обновление слева или запустите сбор.</p>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}

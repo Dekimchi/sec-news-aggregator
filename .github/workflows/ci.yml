@@ -33,3 +33,9 @@ jobs:
 
       - name: Run tests
         run: PYTHONPATH=. pytest -q
+
+      - name: Bandit security lint
+        run: bandit -r app -ll -q
+
+      - name: Dependency audit
+        run: pip-audit -r requirements.txt

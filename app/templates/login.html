@@ -4,26 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Вход — sec-news</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="login-body">
   <main class="login-card">
-    <h1>sec-news</h1>
-    <p class="muted">Вход в агрегатор</p>
+    <p class="brand-mark">sec-news</p>
+    <h1>Вход</h1>
+    <p class="muted">Агрегатор практических новостей ИБ</p>
     <form method="post" action="/login" class="login-form js-action" data-loading-text="Вход…">
       {% include "partials/csrf.html" %}
       <input type="hidden" name="next" value="{{ next }}">
-      <label>
-        Логин
+      <label class="field">
+        <span>Логин</span>
         <input type="text" name="username" autocomplete="username" required autofocus>
       </label>
-      <label>
-        Пароль
+      <label class="field">
+        <span>Пароль</span>
         <input type="password" name="password" autocomplete="current-password" required>
       </label>
-      <button type="submit">Войти</button>
+      <button type="submit" class="btn btn-accent">Войти</button>
     </form>
   </main>
   {% include "partials/toast.html" %}
+  <script src="/static/toast.js"></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>

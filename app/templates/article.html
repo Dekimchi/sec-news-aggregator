@@ -1,8 +1,16 @@
 {% extends "base.html" %}
 {% block title %}{{ article.title_ru or article.title }} — sec-news{% endblock %}
+{% block main_class %}main-article{% endblock %}
 {% block content %}
-<article class="detail">
+<article class="detail {% if interest_tier(article.interest_score) %}item--hot{% if interest_tier(article.interest_score) == 'strong' %} item--hot-strong{% endif %}{% endif %}">
   <p class="crumb"><a href="/">← К ленте</a></p>
+  {% set tier = interest_tier(article.interest_score) %}
+  {% if tier %}
+  <div class="hot-flag">
+    {% if tier == 'strong' %}очень интересно{% else %}интересно{% endif %}
+    <span class="hot-score">{{ '%.0f'|format(article.interest_score) }}</span>
+  </div>
+  {% endif %}
   <h1>{% if article.title_ru %}{{ article.title_ru }}{% else %}{{ article.title }}{% endif %}</h1>
   {% if article.title_ru and article.title_ru != article.title %}
   <p class="orig-title">{{ article.title }}</p>
@@ -17,7 +25,7 @@
     {% if article.translated %}<span class="badge ok">RU</span>{% endif %}
   </div>
 
-  <p class="meta">{{ article.source_name }} · {{ article.published_at or article.fetched_at }}</p>
+  <p class="meta">{{ article.source_name }} · <span class="mono">{{ article.published_at or article.fetched_at }}</span></p>
 
   {% if article.summary_ru %}
   <section class="block">
@@ -34,13 +42,13 @@
   {% endif %}
 
   <div class="actions">
-    <a class="button" href="{{ article.url }}" target="_blank" rel="noopener">Читать оригинал</a>
+    <a class="btn btn-accent" href="{{ article.url }}" target="_blank" rel="noopener">Читать оригинал</a>
     {% if not article.translated %}
     <form method="post" action="/article/{{ article.id }}/translate" class="js-action"
           data-pending-toast="Перевод…"
           data-loading-text="Перевод…">
       {% include "partials/csrf.html" %}
-      <button type="submit">Перевести заголовок и summary</button>
+      <button type="submit" class="btn btn-ghost">Перевести</button>
     </form>
     {% endif %}
   </div>

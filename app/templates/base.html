@@ -4,31 +4,49 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}sec-news{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header class="top">
-    <div class="brand">
-      <a href="/">sec-news</a>
-      <span class="tag">practical security</span>
-    </div>
-    <div class="top-actions">
-      <a class="ghost-btn link-btn" href="/updates">История обновлений</a>
-      <form method="post" action="/admin/refresh" class="refresh-form js-action"
-            data-pending-toast="Обновление ленты… это может занять минуту"
-            data-loading-text="Обновление…">
-        {% include "partials/csrf.html" %}
-        <button type="submit">Обновить сейчас</button>
-      </form>
-      <form method="post" action="/logout" class="js-action" data-loading-text="Выход…">
-        {% include "partials/csrf.html" %}
-        <button type="submit" class="ghost-btn">Выйти</button>
-      </form>
+  <header class="shell-top">
+    <div class="shell-top-inner">
+      <div class="brand">
+        <a href="/" class="brand-mark">sec-news</a>
+        <span class="brand-tag">practical security</span>
+      </div>
+
+      <nav class="tabs" aria-label="Разделы">
+        <a class="tab {% if active_nav == 'feed' %}is-active{% endif %}" href="/">Лента</a>
+        <a class="tab {% if active_nav == 'dashboard' %}is-active{% endif %}" href="/dashboard">Дашборд</a>
+      </nav>
+
+      <button type="button" class="icon-btn mobile-only" id="menu-toggle" aria-expanded="false" aria-controls="top-actions" aria-label="Меню">
+        <span></span><span></span>
+      </button>
+
+      <div class="top-actions" id="top-actions">
+        <form method="post" action="/admin/refresh" class="refresh-form js-action"
+              data-pending-toast="Обновление ленты… это может занять минуту"
+              data-loading-text="Обновление…">
+          {% include "partials/csrf.html" %}
+          <button type="submit" class="btn btn-accent">Обновить</button>
+        </form>
+        <form method="post" action="/logout" class="js-action" data-loading-text="Выход…">
+          {% include "partials/csrf.html" %}
+          <button type="submit" class="btn btn-ghost">Выйти</button>
+        </form>
+      </div>
     </div>
   </header>
-  <main>
+
+  <main class="shell-main {% block main_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+
   {% include "partials/toast.html" %}
+  <script src="/static/toast.js"></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>

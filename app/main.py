@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlencode
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, Form, Query, Request
@@ -23,6 +24,7 @@ from app.config import get_settings
 from app.db import (
     connect,
     count_articles,
+    dashboard_stats,
     distinct_sources,
     get_article,
     get_ingest_run,
@@ -30,6 +32,7 @@ from app.db import (
     list_ingest_runs,
     update_translation,
 )
+from app.flash import FLASH_COOKIE, attach_flash, redirect_with_flash
 from app.ingest import IngestBusy, ingest_once
 from app.labels import (
     CONTENT_TYPE_LABELS,
@@ -39,7 +42,7 @@ from app.labels import (
     label_direction,
     label_technology,
 )
-from app.flash import FLASH_COOKIE, attach_flash, redirect_with_flash
+from app.scoring import HOT_STRONG_THRESHOLD, HOT_THRESHOLD, interest_tier
 from app.security import (
     CSRF_COOKIE,
     get_or_create_csrf,
@@ -60,11 +63,20 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters["label_direction"] = label_direction
 templates.env.filters["label_content_type"] = label_content_type
 templates.env.filters["label_technology"] = label_technology
+templates.env.globals["interest_tier"] = interest_tier
+templates.env.globals["HOT_THRESHOLD"] = HOT_THRESHOLD
+templates.env.globals["HOT_STRONG_THRESHOLD"] = HOT_STRONG_THRESHOLD
 scheduler = AsyncIOScheduler()
 
 DIRECTIONS = list(DIRECTION_LABELS.keys())
 CONTENT_TYPES = list(CONTENT_TYPE_LABELS.keys())
 TECHNOLOGIES = list(TECHNOLOGY_LABELS.keys())
+SORT_OPTIONS = {
+    "newest": "Сначала новые",
+    "oldest": "Сначала старые",
+    "interest": "По интересности",
+    "source": "По источнику",
+}
 
 WEAK_SECRETS = {"", "change-me", "dev-secret-change-on-server", "secnews"}
 
@@ -120,7 +132,10 @@ async def security_middleware(request: Request, call_next):
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; style-src 'self'; script-src 'self'; "
+        "default-src 'self'; "
+        "style-src 'self' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "script-src 'self'; "
         "img-src 'self' data:; base-uri 'self'; form-action 'self'",
     )
     if request.cookies.get(FLASH_COOKIE) and getattr(request.state, "flash", None):
@@ -144,6 +159,37 @@ def _csrf_or_flash(request: Request, csrf_token: str | None, fallback: str = "/"
     if validate_csrf(request, csrf_token):
         return None
     return redirect_with_flash(fallback, "Сессия устарела, обновите страницу и повторите", "error")
+
+
+def _feed_query_string(
+    *,
+    page: int | None = None,
+    q: str = "",
+    sort: str = "newest",
+    translated: str = "",
+    directions: list[str] | None = None,
+    content_types: list[str] | None = None,
+    technologies: list[str] | None = None,
+    sources: list[str] | None = None,
+) -> str:
+    pairs: list[tuple[str, str]] = []
+    if page and page > 1:
+        pairs.append(("page", str(page)))
+    if q:
+        pairs.append(("q", q))
+    if sort and sort != "newest":
+        pairs.append(("sort", sort))
+    if translated:
+        pairs.append(("translated", translated))
+    for d in directions or []:
+        pairs.append(("direction", d))
+    for t in content_types or []:
+        pairs.append(("content_type", t))
+    for t in technologies or []:
+        pairs.append(("technology", t))
+    for s in sources or []:
+        pairs.append(("source", s))
+    return urlencode(pairs)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -192,8 +238,12 @@ async def index(
     source: Annotated[list[str] | None, Query()] = None,
     q: Annotated[str | None, Query()] = None,
     translated: Annotated[str | None, Query()] = None,
+    sort: Annotated[str, Query()] = "newest",
     page: Annotated[int, Query(ge=1)] = 1,
 ):
+    if sort not in SORT_OPTIONS:
+        sort = "newest"
+
     translated_only = None
     if translated == "yes":
         translated_only = True
@@ -202,6 +252,12 @@ async def index(
 
     limit = 40
     offset = (page - 1) * limit
+    selected_directions = direction or []
+    selected_content_types = content_type or []
+    selected_technologies = technology or []
+    selected_sources = source or []
+    q_value = q.strip() if q else ""
+
     db = await connect()
     try:
         articles = await list_articles(
@@ -211,8 +267,9 @@ async def index(
             technologies=_multi(technology),
             source_ids=_multi(source),
             hide_legislation=True,
-            q=q.strip() if q else None,
+            q=q_value or None,
             translated_only=translated_only,
+            sort=sort,
             limit=limit,
             offset=offset,
         )
@@ -225,20 +282,43 @@ async def index(
         request,
         "index.html",
         {
+            "active_nav": "feed",
             "articles": articles,
             "sources": sources,
             "directions": DIRECTIONS,
             "content_types": CONTENT_TYPES,
             "technologies": TECHNOLOGIES,
-            "selected_directions": direction or [],
-            "selected_content_types": content_type or [],
-            "selected_technologies": technology or [],
-            "selected_sources": source or [],
-            "q": q or "",
+            "sort_options": SORT_OPTIONS,
+            "selected_directions": selected_directions,
+            "selected_content_types": selected_content_types,
+            "selected_technologies": selected_technologies,
+            "selected_sources": selected_sources,
+            "q": q_value,
             "translated": translated or "",
+            "sort": sort,
             "page": page,
             "has_next": len(articles) == limit,
             "total": total,
+            "prev_qs": _feed_query_string(
+                page=page - 1 if page > 1 else None,
+                q=q_value,
+                sort=sort,
+                translated=translated or "",
+                directions=selected_directions,
+                content_types=selected_content_types,
+                technologies=selected_technologies,
+                sources=selected_sources,
+            ),
+            "next_qs": _feed_query_string(
+                page=page + 1,
+                q=q_value,
+                sort=sort,
+                translated=translated or "",
+                directions=selected_directions,
+                content_types=selected_content_types,
+                technologies=selected_technologies,
+                sources=selected_sources,
+            ),
         },
     )
 
@@ -259,7 +339,10 @@ async def article_page(
     return templates.TemplateResponse(
         request,
         "article.html",
-        {"article": article},
+        {
+            "active_nav": "feed",
+            "article": article,
+        },
     )
 
 
@@ -313,56 +396,44 @@ async def translate_one(
     )
 
 
-@app.get("/updates", response_class=HTMLResponse)
-async def updates_page(
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(
     request: Request,
     _: Annotated[str, Depends(require_user)],
-    highlight: Annotated[int | None, Query()] = None,
+    run: Annotated[int | None, Query()] = None,
 ):
     db = await connect()
     try:
+        stats = await dashboard_stats(db)
         runs = await list_ingest_runs(db, limit=50)
         selected = None
-        if highlight:
-            selected = await get_ingest_run(db, highlight)
+        if run:
+            selected = await get_ingest_run(db, run)
         if selected is None and runs:
             selected = runs[0]
     finally:
         await db.close()
     return templates.TemplateResponse(
         request,
-        "updates.html",
+        "dashboard.html",
         {
+            "active_nav": "dashboard",
+            "stats": stats,
             "runs": runs,
             "selected": selected,
-            "highlight": highlight,
+            "highlight": run,
         },
     )
+
+
+@app.get("/updates", response_class=HTMLResponse)
+async def updates_redirect():
+    return RedirectResponse(url="/dashboard", status_code=301)
 
 
 @app.get("/updates/{run_id}", response_class=HTMLResponse)
-async def update_detail(
-    request: Request,
-    run_id: int,
-    _: Annotated[str, Depends(require_user)],
-):
-    db = await connect()
-    try:
-        selected = await get_ingest_run(db, run_id)
-        runs = await list_ingest_runs(db, limit=50)
-    finally:
-        await db.close()
-    if not selected:
-        return redirect_with_flash("/updates", "Запись обновления не найдена", "error")
-    return templates.TemplateResponse(
-        request,
-        "updates.html",
-        {
-            "runs": runs,
-            "selected": selected,
-            "highlight": run_id,
-        },
-    )
+async def update_detail_redirect(run_id: int):
+    return RedirectResponse(url=f"/dashboard?run={run_id}", status_code=301)
 
 
 @app.post("/admin/refresh")
@@ -371,20 +442,20 @@ async def refresh(
     _: Annotated[str, Depends(require_user)],
     csrf_token: Annotated[str | None, Form()] = None,
 ):
-    bad = _csrf_or_flash(request, csrf_token, "/updates")
+    bad = _csrf_or_flash(request, csrf_token, "/dashboard")
     if bad:
         return bad
     try:
         stats = await ingest_once(allow_wait=True, trigger="manual")
     except IngestBusy:
         return redirect_with_flash(
-            "/updates",
-            "Сбор новостей уже выполняется — откройте историю чуть позже",
+            "/dashboard",
+            "Сбор новостей уже выполняется — откройте дашборд чуть позже",
             "info",
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("Manual refresh failed")
-        return redirect_with_flash("/updates", f"Ошибка обновления: {exc}", "error")
+        return redirect_with_flash("/dashboard", f"Ошибка обновления: {exc}", "error")
     run_id = stats.get("run_id")
     failed = stats.get("failed_sources") or []
     msg = (
@@ -396,7 +467,7 @@ async def refresh(
         level = "info"
     else:
         level = "ok"
-    target = f"/updates/{run_id}" if run_id else "/updates"
+    target = f"/dashboard?run={run_id}" if run_id else "/dashboard"
     return redirect_with_flash(target, msg, level)
 
 

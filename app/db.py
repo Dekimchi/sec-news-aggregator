@@ -8,6 +8,7 @@ from typing import Any
 import aiosqlite
 
 from app.config import get_settings
+from app.scoring import score_article
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS articles (
@@ -28,7 +29,8 @@ CREATE TABLE IF NOT EXISTS articles (
     technologies TEXT NOT NULL DEFAULT '[]',
     is_legislation INTEGER NOT NULL DEFAULT 0,
     lang_original TEXT NOT NULL DEFAULT 'en',
-    translated INTEGER NOT NULL DEFAULT 0
+    translated INTEGER NOT NULL DEFAULT 0,
+    interest_score REAL NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);
@@ -36,6 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_articles_direction ON articles(direction);
 CREATE INDEX IF NOT EXISTS idx_articles_content_type ON articles(content_type);
 CREATE INDEX IF NOT EXISTS idx_articles_legislation ON articles(is_legislation);
 CREATE INDEX IF NOT EXISTS idx_articles_source ON articles(source_id);
+CREATE INDEX IF NOT EXISTS idx_articles_interest ON articles(interest_score DESC);
 
 CREATE TABLE IF NOT EXISTS ingest_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,8 +74,35 @@ async def connect() -> aiosqlite.Connection:
     await db.execute("PRAGMA busy_timeout=30000;")
     await db.execute("PRAGMA temp_store=MEMORY;")
     await db.executescript(SCHEMA)
+    await _migrate_articles(db)
     await db.commit()
     return db
+
+
+async def _migrate_articles(db: aiosqlite.Connection) -> None:
+    cur = await db.execute("PRAGMA table_info(articles)")
+    cols = {row[1] for row in await cur.fetchall()}
+    if "interest_score" not in cols:
+        await db.execute(
+            "ALTER TABLE articles ADD COLUMN interest_score REAL NOT NULL DEFAULT 0"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_articles_interest ON articles(interest_score DESC)"
+        )
+        await _backfill_interest_scores(db)
+
+
+async def _backfill_interest_scores(db: aiosqlite.Connection) -> None:
+    settings = get_settings()
+    cur = await db.execute("SELECT * FROM articles")
+    rows = await cur.fetchall()
+    for row in rows:
+        article = row_to_article(row)
+        score = score_article(article, retention_days=settings.retention_days)
+        await db.execute(
+            "UPDATE articles SET interest_score = ? WHERE id = ?",
+            (score, article["id"]),
+        )
 
 
 def row_to_article(row: aiosqlite.Row) -> dict[str, Any]:
@@ -84,6 +114,7 @@ def row_to_article(row: aiosqlite.Row) -> dict[str, Any]:
         data["technologies"] = []
     data["is_legislation"] = bool(data.get("is_legislation"))
     data["translated"] = bool(data.get("translated"))
+    data["interest_score"] = float(data.get("interest_score") or 0)
     return data
 
 
@@ -95,6 +126,11 @@ async def upsert_article(db: aiosqlite.Connection, article: dict[str, Any]) -> b
     else:
         tech_json = str(tech)
 
+    settings = get_settings()
+    interest = article.get("interest_score")
+    if interest is None:
+        interest = score_article(article, retention_days=settings.retention_days)
+
     try:
         await db.execute(
             """
@@ -102,12 +138,12 @@ async def upsert_article(db: aiosqlite.Connection, article: dict[str, Any]) -> b
                 source_id, source_name, guid, url, title, title_ru,
                 summary, summary_ru, content, published_at, fetched_at,
                 direction, content_type, technologies, is_legislation,
-                lang_original, translated
+                lang_original, translated, interest_score
             ) VALUES (
                 :source_id, :source_name, :guid, :url, :title, :title_ru,
                 :summary, :summary_ru, :content, :published_at, :fetched_at,
                 :direction, :content_type, :technologies, :is_legislation,
-                :lang_original, :translated
+                :lang_original, :translated, :interest_score
             )
             """,
             {
@@ -128,6 +164,7 @@ async def upsert_article(db: aiosqlite.Connection, article: dict[str, Any]) -> b
                 "is_legislation": 1 if article.get("is_legislation") else 0,
                 "lang_original": article.get("lang_original", "en"),
                 "translated": 1 if article.get("translated") else 0,
+                "interest_score": float(interest),
             },
         )
         await db.commit()
@@ -159,6 +196,14 @@ async def get_article(db: aiosqlite.Connection, article_id: int) -> dict[str, An
     return row_to_article(row) if row else None
 
 
+_SORT_SQL = {
+    "newest": "COALESCE(published_at, fetched_at) DESC, id DESC",
+    "oldest": "COALESCE(published_at, fetched_at) ASC, id ASC",
+    "interest": "interest_score DESC, COALESCE(published_at, fetched_at) DESC, id DESC",
+    "source": "source_name ASC, COALESCE(published_at, fetched_at) DESC, id DESC",
+}
+
+
 async def list_articles(
     db: aiosqlite.Connection,
     *,
@@ -169,6 +214,7 @@ async def list_articles(
     hide_legislation: bool = True,
     q: str | None = None,
     translated_only: bool | None = None,
+    sort: str = "newest",
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
@@ -211,12 +257,16 @@ async def list_articles(
         clauses.append("translated = 0")
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    sql = f"""
-        SELECT * FROM articles
-        {where}
-        ORDER BY COALESCE(published_at, fetched_at) DESC
-        LIMIT ? OFFSET ?
-    """
+    # ORDER BY comes only from the allowlisted _SORT_SQL values (never from user input).
+    order_by = _SORT_SQL.get(sort, _SORT_SQL["newest"])
+    if order_by not in _SORT_SQL.values():
+        order_by = _SORT_SQL["newest"]
+    sql = (
+        "SELECT * FROM articles "
+        f"{where} "
+        f"ORDER BY {order_by} "  # nosec B608
+        "LIMIT ? OFFSET ?"
+    )
     params.extend([limit, offset])
     cur = await db.execute(sql, params)
     rows = await cur.fetchall()
@@ -365,6 +415,39 @@ async def get_ingest_run(
     cur = await db.execute("SELECT * FROM ingest_runs WHERE id = ?", (run_id,))
     row = await cur.fetchone()
     return row_to_ingest_run(row) if row else None
+
+
+async def dashboard_stats(db: aiosqlite.Connection) -> dict[str, Any]:
+    total = await count_articles(db, hide_legislation=True)
+    runs = await list_ingest_runs(db, limit=1)
+    last = runs[0] if runs else None
+
+    cur = await db.execute(
+        """
+        SELECT content_type, COUNT(*) AS c
+        FROM articles
+        WHERE is_legislation = 0
+        GROUP BY content_type
+        ORDER BY c DESC
+        """
+    )
+    by_type = [{"content_type": r["content_type"], "count": int(r["c"])} for r in await cur.fetchall()]
+
+    cur = await db.execute(
+        """
+        SELECT COUNT(*) AS c FROM articles
+        WHERE is_legislation = 0 AND interest_score >= 55
+        """
+    )
+    row = await cur.fetchone()
+    hot_count = int(row["c"]) if row else 0
+
+    return {
+        "total_articles": total,
+        "hot_count": hot_count,
+        "last_run": last,
+        "by_type": by_type,
+    }
 
 
 def is_older_than(iso_ts: str | None, days: int) -> bool:

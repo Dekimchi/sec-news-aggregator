@@ -2,4 +2,3 @@
 {% if request.state.flash %}
 <script type="application/json" id="toast-boot">{{ {"level": request.state.flash.level, "message": request.state.flash.message}|tojson }}</script>
 {% endif %}
-<script src="/static/toast.js" defer></script>

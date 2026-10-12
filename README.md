@@ -59,8 +59,10 @@ git push -u origin feature/my-change
 
 | Workflow | Когда | Что делает |
 |---|---|---|
-| **CI** | любой push + PR в `master`/`main` | install, `compileall`, import check, `pytest` |
+| **CI** | любой push + PR в `master`/`main` | install, `compileall`, import check, `pytest`, Bandit, pip-audit |
 | **CD** | только после успешного CI на `master`/`main` (или manual с этих веток) | SSH на VPS → reset на ветку, `pip install`, proxy/geo, `systemctl restart` |
+
+Интерфейс: вкладки **Лента** / **Дашборд**, сортировка ленты, визуальное выделение интересных статей, история обновлений на дашборде.
 
 Feature-ветки и PR **не деплоятся** на VPS — только прогоняют CI. В прод попадает код после merge в `master`.
 

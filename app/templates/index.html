@@ -1,9 +1,14 @@
 {% extends "base.html" %}
 {% block title %}sec-news — лента{% endblock %}
+{% block main_class %}main-feed{% endblock %}
 {% block content %}
-<section class="filters">
-  <form method="get" action="/" class="filter-form">
-    <label class="search">
+<aside class="filters" id="filters-panel" data-drawer>
+  <div class="filters-head">
+    <h2>Фильтры</h2>
+    <button type="button" class="btn btn-ghost mobile-only" data-drawer-close aria-label="Закрыть фильтры">Закрыть</button>
+  </div>
+  <form method="get" action="/" class="filter-form" id="filter-form">
+    <label class="field">
       <span>Поиск</span>
       <input type="search" name="q" value="{{ q }}" placeholder="CVE, XSS, ransomware…">
     </label>
@@ -11,88 +16,110 @@
     <fieldset>
       <legend>Направление</legend>
       {% for d in directions %}
-      <label><input type="checkbox" name="direction" value="{{ d }}" {% if d in selected_directions %}checked{% endif %}> {{ d|label_direction }}</label>
+      <label class="check"><input type="checkbox" name="direction" value="{{ d }}" {% if d in selected_directions %}checked{% endif %}> {{ d|label_direction }}</label>
       {% endfor %}
     </fieldset>
 
     <fieldset>
       <legend>Тип</legend>
       {% for t in content_types %}
-      <label><input type="checkbox" name="content_type" value="{{ t }}" {% if t in selected_content_types %}checked{% endif %}> {{ t|label_content_type }}</label>
+      <label class="check"><input type="checkbox" name="content_type" value="{{ t }}" {% if t in selected_content_types %}checked{% endif %}> {{ t|label_content_type }}</label>
       {% endfor %}
     </fieldset>
 
     <fieldset>
       <legend>Технологии</legend>
       {% for t in technologies %}
-      <label><input type="checkbox" name="technology" value="{{ t }}" {% if t in selected_technologies %}checked{% endif %}> {{ t|label_technology }}</label>
+      <label class="check"><input type="checkbox" name="technology" value="{{ t }}" {% if t in selected_technologies %}checked{% endif %}> {{ t|label_technology }}</label>
       {% endfor %}
     </fieldset>
 
     <fieldset>
       <legend>Источник</legend>
       {% for s in sources %}
-      <label><input type="checkbox" name="source" value="{{ s.id }}" {% if s.id in selected_sources %}checked{% endif %}> {{ s.name }}</label>
+      <label class="check"><input type="checkbox" name="source" value="{{ s.id }}" {% if s.id in selected_sources %}checked{% endif %}> {{ s.name }}</label>
       {% else %}
       <p class="muted">Источники появятся после первого сбора</p>
       {% endfor %}
     </fieldset>
 
-    <fieldset class="row">
-      <label>
-        Перевод
-        <select name="translated">
-          <option value="" {% if not translated %}selected{% endif %}>любой</option>
-          <option value="yes" {% if translated == 'yes' %}selected{% endif %}>есть RU</option>
-          <option value="no" {% if translated == 'no' %}selected{% endif %}>без RU</option>
-        </select>
-      </label>
-    </fieldset>
+    <label class="field">
+      <span>Перевод</span>
+      <select name="translated">
+        <option value="" {% if not translated %}selected{% endif %}>любой</option>
+        <option value="yes" {% if translated == 'yes' %}selected{% endif %}>есть RU</option>
+        <option value="no" {% if translated == 'no' %}selected{% endif %}>без RU</option>
+      </select>
+    </label>
 
     <div class="actions">
-      <button type="submit">Применить фильтры</button>
-      <a class="ghost" href="/">Сбросить</a>
+      <button type="submit" class="btn btn-accent">Применить</button>
+      <a class="ghost-link" href="/">Сбросить</a>
     </div>
   </form>
-</section>
+</aside>
+<div class="drawer-backdrop" data-drawer-backdrop hidden></div>
 
 <section class="feed">
-  <p class="meta">Показано {{ articles|length }} · в базе: {{ total }}</p>
-  {% for a in articles %}
-  <article class="item">
-    <div class="item-head">
-      <a class="title" href="/article/{{ a.id }}">
-        {% if a.title_ru %}{{ a.title_ru }}{% else %}{{ a.title }}{% endif %}
-      </a>
-      <div class="badges">
-        <span class="badge">{{ a.direction|label_direction }}</span>
-        <span class="badge">{{ a.content_type|label_content_type }}</span>
-        {% for t in a.technologies %}
-        <span class="badge tech">{{ t|label_technology }}</span>
+  <div class="feed-toolbar">
+    <div class="feed-toolbar-left">
+      <button type="button" class="btn btn-ghost mobile-only" data-drawer-open aria-controls="filters-panel">Фильтры</button>
+      <p class="meta">{{ articles|length }} на странице · {{ total }} в базе</p>
+    </div>
+    <label class="field field-inline sort-field">
+      <span>Сортировка</span>
+      <select name="sort" id="sort-select" form="filter-form" data-auto-submit>
+        {% for key, label in sort_options.items() %}
+        <option value="{{ key }}" {% if sort == key %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
-        {% if a.translated %}<span class="badge ok">RU</span>{% endif %}
+      </select>
+    </label>
+  </div>
+
+  <div class="feed-list">
+    {% for a in articles %}
+    {% set tier = interest_tier(a.interest_score) %}
+    <article class="item {% if tier == 'strong' %}item--hot item--hot-strong{% elif tier == 'hot' %}item--hot{% endif %}" style="--i: {{ loop.index0 }}">
+      {% if tier %}
+      <div class="hot-flag" title="Оценка интересности {{ '%.0f'|format(a.interest_score) }}">
+        {% if tier == 'strong' %}очень интересно{% else %}интересно{% endif %}
+        <span class="hot-score">{{ '%.0f'|format(a.interest_score) }}</span>
       </div>
-    </div>
-    <p class="summary">
-      {% if a.summary_ru %}{{ a.summary_ru }}{% elif a.summary %}{{ a.summary[:320] }}{% endif %}
-    </p>
-    <div class="item-foot">
-      <span>{{ a.source_name }}</span>
-      <span>{{ a.published_at or a.fetched_at }}</span>
-      <a href="{{ a.url }}" target="_blank" rel="noopener">оригинал</a>
-    </div>
-  </article>
-  {% else %}
-  <p class="empty">Пока нет статей под эти фильтры. Нажмите «Обновить сейчас» или подождите плановый сбор.</p>
-  {% endfor %}
+      {% endif %}
+      <div class="item-head">
+        <a class="title" href="/article/{{ a.id }}">
+          {% if a.title_ru %}{{ a.title_ru }}{% else %}{{ a.title }}{% endif %}
+        </a>
+        <div class="badges">
+          <span class="badge">{{ a.direction|label_direction }}</span>
+          <span class="badge">{{ a.content_type|label_content_type }}</span>
+          {% for t in a.technologies %}
+          <span class="badge tech">{{ t|label_technology }}</span>
+          {% endfor %}
+          {% if a.translated %}<span class="badge ok">RU</span>{% endif %}
+        </div>
+      </div>
+      <p class="summary">
+        {% if a.summary_ru %}{{ a.summary_ru }}{% elif a.summary %}{{ a.summary[:320] }}{% endif %}
+      </p>
+      <div class="item-foot">
+        <span>{{ a.source_name }}</span>
+        <span class="mono">{{ a.published_at or a.fetched_at }}</span>
+        <a href="{{ a.url }}" target="_blank" rel="noopener">оригинал</a>
+      </div>
+    </article>
+    {% else %}
+    <p class="empty">Пока нет статей под эти фильтры. Нажмите «Обновить» или подождите плановый сбор.</p>
+    {% endfor %}
+  </div>
 
   <nav class="pager">
     {% if page > 1 %}
-    <a href="?page={{ page - 1 }}&q={{ q }}{% for d in selected_directions %}&direction={{ d }}{% endfor %}{% for t in selected_content_types %}&content_type={{ t }}{% endfor %}{% for t in selected_technologies %}&technology={{ t }}{% endfor %}{% for s in selected_sources %}&source={{ s }}{% endfor %}{% if translated %}&translated={{ translated }}{% endif %}">← Назад</a>
+    <a class="btn btn-ghost" href="/?{{ prev_qs }}">← Назад</a>
     {% endif %}
-    <span>стр. {{ page }}</span>
+    <span class="mono">стр. {{ page }}</span>
     {% if has_next %}
-    <a href="?page={{ page + 1 }}&q={{ q }}{% for d in selected_directions %}&direction={{ d }}{% endfor %}{% for t in selected_content_types %}&content_type={{ t }}{% endfor %}{% for t in selected_technologies %}&technology={{ t }}{% endfor %}{% for s in selected_sources %}&source={{ s }}{% endfor %}{% if translated %}&translated={{ translated }}{% endif %}">Дальше →</a>
+    <a class="btn btn-ghost" href="/?{{ next_qs }}">Дальше →</a>
     {% endif %}
   </nav>
 </section>
