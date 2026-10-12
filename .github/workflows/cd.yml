@@ -69,8 +69,13 @@ jobs:
             chmod +x deploy/setup-proxy.sh deploy/setup-geo-ru.sh
             bash deploy/setup-proxy.sh
             systemctl restart sec-news
-            sleep 2
-            curl -fsS "http://127.0.0.1:8000/health" | grep -q '"ok":true'
+            sleep 3
+            if ! curl -fsS "http://127.0.0.1:8000/health" | grep -q '"ok":true'; then
+              echo "sec-news health check failed" >&2
+              systemctl --no-pager -l status sec-news || true
+              journalctl -u sec-news -n 80 --no-pager || true
+              exit 1
+            fi
             if ! systemctl --no-pager --quiet is-active caddy; then
               journalctl -u caddy -n 40 --no-pager || true
               exit 1
