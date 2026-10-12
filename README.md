@@ -46,14 +46,23 @@ python run.py
 
 Хранение: только последние `RETENTION_DAYS` дней (по умолчанию 7) — старые записи удаляются при каждом сборе.
 
-## CI/CD
+## CI/CD и ветки
 
-В репозитории два workflow:
+Прод обновляется **только из `master`/`main`**. Новый функционал проверяйте в отдельной ветке:
+
+```bash
+git checkout -b feature/my-change
+# ... правки, коммиты ...
+git push -u origin feature/my-change
+# затем PR в master на GitHub
+```
 
 | Workflow | Когда | Что делает |
 |---|---|---|
-| **CI** | push / PR в `master`/`main` | install, `compileall`, import check, `pytest` |
-| **CD** | после успешного CI или вручную | SSH на VPS → `git pull`, `pip install`, `systemctl restart sec-news` |
+| **CI** | любой push + PR в `master`/`main` | install, `compileall`, import check, `pytest` |
+| **CD** | только после успешного CI на `master`/`main` (или manual с этих веток) | SSH на VPS → reset на ветку, `pip install`, proxy/geo, `systemctl restart` |
+
+Feature-ветки и PR **не деплоятся** на VPS — только прогоняют CI. В прод попадает код после merge в `master`.
 
 ### Secrets для CD (Settings → Secrets and variables → Actions)
 
@@ -69,19 +78,22 @@ python run.py
 
 Первичная установка на сервер: `deploy/bootstrap-server.sh`.
 
-## Reverse proxy + защита от брута
+## Reverse proxy + защита
 
-Раскатывается **через CD** после успешного CI (скрипт `deploy/setup-proxy.sh` на VPS).
+Раскатывается **через CD** после успешного CI (`deploy/setup-proxy.sh` на VPS).
 
 Без домена:
-- `http://VPS_IP/` — обычный HTTP
 - `https://VPS_IP/` — HTTPS с self-signed сертификатом (браузер покажет предупреждение)
+- `http://VPS_IP/` — только редирект на HTTPS
 
 Что ставится автоматически:
 - **Caddy** — reverse proxy на `127.0.0.1:8000`
-- **UFW** — только 22/80/443
+- **UFW** — 22/80/443
+- **Geo-IP (РФ)** — на 80/443 пускаются только российские диапазоны (`deploy/setup-geo-ru.sh`, обновление раз в неделю). SSH (22) **не** режется, чтобы CD с GitHub Actions продолжал работать
 - **fail2ban** — бан IP после серии `AUTH_FAIL` в логах `sec-news`
 - В приложении — лимит логина: **5 попыток / 10 минут** с одного IP
+
+Если заходите из-за рубежа (или через зарубежный VPN) — сайт будет недоступен; SSH при этом остаётся.
 
 Когда появится домен — можно будет переключить Caddy на Let's Encrypt.
 

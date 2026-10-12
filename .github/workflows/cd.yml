@@ -13,10 +13,14 @@ concurrency:
 
 jobs:
   deploy:
+    # Production deploys only from master/main — feature branches and PRs never touch the VPS.
     if: >
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.ref_name == 'master' || github.ref_name == 'main')) ||
       (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success')
+       github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.head_branch == 'master' ||
+        github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -48,6 +52,10 @@ jobs:
           envs: BRANCH,APP_DIR
           script: |
             set -euo pipefail
+            case "$BRANCH" in
+              master|main) ;;
+              *) echo "Refusing to deploy non-production branch: $BRANCH" >&2; exit 1 ;;
+            esac
             cd "$APP_DIR"
             git fetch origin
             # Discard any local drift on the server so pull never blocks CD.
@@ -58,7 +66,7 @@ jobs:
             . .venv/bin/activate
             pip install --upgrade pip
             pip install -r requirements.txt
-            chmod +x deploy/setup-proxy.sh
+            chmod +x deploy/setup-proxy.sh deploy/setup-geo-ru.sh
             bash deploy/setup-proxy.sh
             systemctl restart sec-news
             sleep 2

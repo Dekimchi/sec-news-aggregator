@@ -1,0 +1,12 @@
+[Unit]
+Description=Restrict sec-news HTTP/HTTPS to Russian IP ranges
+After=network-online.target ufw.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sec-news-aggregator/deploy/setup-geo-ru.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

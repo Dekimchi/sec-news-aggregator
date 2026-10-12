@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly refresh of Russian IP ranges for sec-news geo filter
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
