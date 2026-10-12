@@ -670,6 +670,7 @@ async def presets_delete(
 async def presets_apply(
     preset_id: int,
     _: Annotated[str, Depends(require_user)],
+    scope: Annotated[str | None, Query()] = None,
 ):
     db = await connect()
     try:
@@ -679,18 +680,21 @@ async def presets_apply(
     if not preset:
         return redirect_with_flash("/", "Пресет не найден", "error")
     params = preset["params"]
+    use_bookmarks = scope == "bookmarks"
     qs = _feed_query_string(
         q=params.get("q") or "",
         cve=params.get("cve") or "",
         sort=params.get("sort") or DEFAULT_SORT,
         translated=params.get("translated") or "",
-        bookmarks=params.get("bookmarks") or "",
+        bookmarks="1" if use_bookmarks else "",
         hide_read=params.get("hide_read") or "",
         directions=params.get("direction") or [],
         content_types=params.get("content_type") or [],
         technologies=params.get("technology") or [],
         sources=params.get("source") or [],
     )
+    if not qs and use_bookmarks:
+        return RedirectResponse(url="/?bookmarks=1", status_code=303)
     return RedirectResponse(url=f"/?{qs}" if qs else "/", status_code=303)
 
 
