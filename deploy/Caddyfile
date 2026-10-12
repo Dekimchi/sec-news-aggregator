@@ -1,0 +1,28 @@
+# Replace example.com with your domain (DNS A-record -> VPS IP).
+{$SITE_ADDRESS:example.com} {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		-Server
+	}
+
+	# Basic request flood protection at the edge.
+	@login path /login
+	handle @login {
+		# Caddy built-in is limited; app-level limiter + fail2ban handle auth brutes.
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	log {
+		output file /var/log/caddy/sec-news-access.log
+		format console
+	}
+}

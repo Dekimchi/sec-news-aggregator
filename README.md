@@ -69,6 +69,22 @@ python run.py
 
 Первичная установка на сервер: `deploy/bootstrap-server.sh`.
 
+## Reverse proxy + защита от брута
+
+На сервере (нужен домен с A-записью на IP VPS):
+
+```bash
+cd /opt/sec-news-aggregator
+git pull
+SITE_ADDRESS=news.example.com bash deploy/setup-proxy.sh
+```
+
+Что ставится:
+- **Caddy** — HTTPS (Let's Encrypt) + reverse proxy на `127.0.0.1:8000`
+- **UFW** — только 22/80/443
+- **fail2ban** — бан IP после серии `AUTH_FAIL` в логах `sec-news`
+- В приложении — лимит логина: **5 попыток / 10 минут** с одного IP
+
 ## Деплой на VPS (вручную)
 
 1. Скопировать/клонировать проект, создать venv, установить зависимости.

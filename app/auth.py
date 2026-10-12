@@ -10,8 +10,11 @@ from urllib.parse import quote
 from fastapi import Form, Request
 from fastapi.responses import RedirectResponse
 
+import logging
+
 from app.config import get_settings
 from app.flash import redirect_with_flash
+from app.ratelimit import client_ip, login_limiter
 from app.security import (
     CSRF_COOKIE,
     constant_time_equals,
@@ -19,6 +22,8 @@ from app.security import (
     set_csrf_cookie,
     validate_csrf,
 )
+
+log = logging.getLogger("sec-news.auth")
 
 COOKIE_NAME = "sec_news_session"
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 14  # 14 days
@@ -82,9 +87,19 @@ async def login_form_handler(
     next: Annotated[str, Form()] = "/",
     csrf_token: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
+    ip = client_ip(request)
+    if not login_limiter.allow(f"login:{ip}"):
+        wait = login_limiter.retry_after(f"login:{ip}")
+        log.warning("AUTH_FAIL ip=%s reason=rate_limit", ip)
+        return redirect_with_flash(
+            "/login",
+            f"Слишком много попыток входа. Подождите {wait} сек.",
+            "error",
+        )
     if not validate_csrf(request, csrf_token):
         return redirect_with_flash("/login", "Сессия устарела, войдите снова", "error")
     if not check_credentials(username, password):
+        log.warning("AUTH_FAIL ip=%s reason=bad_credentials", ip)
         return redirect_with_flash("/login", "Неверный логин или пароль", "error")
     target = safe_next_url(next)
     response = redirect_with_flash(target, "Вход выполнен", "ok")
